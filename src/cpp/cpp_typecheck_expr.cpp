@@ -603,7 +603,7 @@ bool cpp_typecheckt::operator_is_overloaded(exprt &expr)
       // instead.
 
       // go into scope of first operand
-      if(expr.op0().type().id()==ID_symbol &&
+      if(expr.op0().type().id()==ID_symbol_type &&
          follow(expr.op0().type()).id()==ID_struct)
       {
         const irep_idt &struct_identifier=

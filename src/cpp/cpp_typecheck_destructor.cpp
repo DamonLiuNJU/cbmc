@@ -155,7 +155,7 @@ codet cpp_typecheckt::dtor(const symbolt &symbol)
       bit++)
   {
     assert(bit->id()==ID_base);
-    assert(bit->find(ID_type).id()==ID_symbol);
+    assert(bit->find(ID_type).id()==ID_symbol_type);
     const symbolt &psymb = lookup(bit->find(ID_type).get(ID_identifier));
 
     // TODO(tautschnig): object is not type checked before passing it to

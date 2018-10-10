@@ -14,6 +14,7 @@ Author: Peter Schrammel
 
 #include <analyses/goto_check.h>
 
+#include <util/options.h>
 #include <util/parse_options.h>
 #include <util/timestamper.h>
 #include <util/ui_message.h>
@@ -25,7 +26,6 @@ Author: Peter Schrammel
 #include "jdiff_languages.h"
 
 class goto_modelt;
-class optionst;
 
 // clang-format off
 #define JDIFF_OPTIONS \
@@ -35,6 +35,8 @@ class optionst;
   OPT_GOTO_CHECK \
   "(cover):" \
   "(verbosity):(version)" \
+  "(no-lazy-methods)" /* should go away */ \
+  "(no-refine-strings)" /* should go away */ \
   OPT_TIMESTAMP \
   "u(unified)(change-impact)(forward-impact)(backward-impact)" \
   "(compact-output)"
@@ -53,6 +55,7 @@ public:
     const std::string &extra_options);
 
 protected:
+  optionst options;
   ui_message_handlert ui_message_handler;
   jdiff_languagest languages2;
 

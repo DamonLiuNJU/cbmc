@@ -6,9 +6,10 @@ SRC = bytecode_info.cpp \
       expr2java.cpp \
       generic_parameter_specialization_map_keys.cpp \
       jar_file.cpp \
+      jar_pool.cpp \
       java_bytecode_convert_class.cpp \
       java_bytecode_convert_method.cpp \
-      java_bytecode_convert_threadblock.cpp \
+      java_bytecode_concurrency_instrumentation.cpp \
       java_bytecode_instrument.cpp \
       java_bytecode_internal_additions.cpp \
       java_bytecode_language.cpp \
@@ -19,6 +20,7 @@ SRC = bytecode_info.cpp \
       java_bytecode_typecheck_expr.cpp \
       java_bytecode_typecheck_type.cpp \
       java_class_loader.cpp \
+      java_class_loader_base.cpp \
       java_class_loader_limit.cpp \
       java_enum_static_init_unwind_handler.cpp \
       java_entry_point.cpp \
@@ -32,6 +34,8 @@ SRC = bytecode_info.cpp \
       java_string_literals.cpp \
       java_types.cpp \
       java_utils.cpp \
+      load_method_by_regex.cpp \
+      object_factory_parameters.cpp \
       mz_zip_archive.cpp \
       remove_exceptions.cpp \
       remove_instanceof.cpp \

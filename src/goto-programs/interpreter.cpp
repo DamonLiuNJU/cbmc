@@ -18,14 +18,16 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <algorithm>
 #include <cstring>
 
+#include <util/fixedbv.h>
+#include <util/ieee_float.h>
 #include <util/invariant.h>
+#include <util/message.h>
+#include <util/std_expr.h>
 #include <util/std_types.h>
+#include <util/string2int.h>
 #include <util/string_container.h>
 #include <util/symbol_table.h>
-#include <util/ieee_float.h>
-#include <util/fixedbv.h>
-#include <util/std_expr.h>
-#include <util/message.h>
+
 #include <json/json_parser.h>
 
 #include "interpreter_class.h"
@@ -207,7 +209,7 @@ void interpretert::command()
       stack_depth=call_stack.size()+1;
     else
     {
-      num_steps=atoi(command+1);
+      num_steps=safe_string2size_t(command+1);
       if(num_steps==0)
         num_steps=1;
     }
@@ -512,7 +514,7 @@ exprt interpretert::get_value(
   if(use_non_det &&
      memory[integer2ulong(offset)].initialized!=
      memory_cellt::initializedt::WRITTEN_BEFORE_READ)
-    return side_effect_expr_nondett(type);
+    return side_effect_expr_nondett(type, source_locationt());
   mp_vectort rhs;
   rhs.push_back(memory[integer2ulong(offset)].value);
   return get_value(type, rhs);
@@ -549,7 +551,7 @@ exprt interpretert::get_value(
   }
   else if(real_type.id()==ID_array)
   {
-    constant_exprt result(type);
+    array_exprt result(to_array_type(real_type));
     const exprt &size_expr=static_cast<const exprt &>(type.find(ID_size));
 
     // Get size of array
@@ -598,15 +600,10 @@ exprt interpretert::get_value(
   {
     return from_integer(rhs[integer2size_t(offset)]!=0?1:0, type);
   }
-  else if((real_type.id()==ID_pointer) || (real_type.id()==ID_address_of))
+  else if(real_type.id() == ID_pointer)
   {
     if(rhs[integer2size_t(offset)]==0)
-    {
-      // NULL pointer
-      constant_exprt result(type);
-      result.set_value(ID_NULL);
-      return result;
-    }
+      return null_pointer_exprt(to_pointer_type(real_type)); // NULL pointer
 
     if(rhs[integer2size_t(offset)]<memory.size())
     {
@@ -675,15 +672,7 @@ void interpretert::execute_assign()
       goto_trace_stept &trace_step=steps.get_last_step();
       assign(address, rhs);
       trace_step.full_lhs=code_assign.lhs();
-
-      // TODO: need to look at other cases on ssa_exprt
-      // (dereference should be handled on ssa)
-      if(ssa_exprt::can_build_identifier(trace_step.full_lhs))
-      {
-        trace_step.lhs_object=ssa_exprt(trace_step.full_lhs);
-      }
       trace_step.full_lhs_value=get_value(trace_step.full_lhs.type(), rhs);
-      trace_step.lhs_object_value=trace_step.full_lhs_value;
     }
   }
   else if(code_assign.rhs().id()==ID_side_effect)
@@ -769,8 +758,8 @@ void interpretert::execute_function_call()
 #if 0
   const memory_cellt &cell=memory[address];
 #endif
-  const irep_idt &identifier=address_to_identifier(address);
-  trace_step.identifier=identifier;
+  const irep_idt &identifier = address_to_identifier(address);
+  trace_step.function_identifier = identifier;
 
   const goto_functionst::function_mapt::const_iterator f_it=
     goto_functions.function_map.find(identifier);
@@ -1041,10 +1030,11 @@ mp_integer interpretert::get_size(const typet &type)
     }
     return subtype_size;
   }
-  else if(type.id()==ID_symbol)
+  else if(type.id() == ID_symbol_type)
   {
     return get_size(ns.follow(type));
   }
+
   return 1;
 }
 
@@ -1095,4 +1085,3 @@ void interpreter(
     message_handler);
   interpreter();
 }
-

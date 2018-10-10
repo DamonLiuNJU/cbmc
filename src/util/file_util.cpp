@@ -13,7 +13,7 @@ Date: January 2012
 
 #include "file_util.h"
 
-#include "invariant.h"
+#include "exception_utils.h"
 
 #include <cerrno>
 #include <cstring>
@@ -32,6 +32,11 @@ Date: January 2012
 #endif
 
 #ifdef _WIN32
+#include <util/pragma_push.def>
+#ifdef _MSC_VER
+#pragma warning(disable:4668)
+  // using #if/#elif on undefined macro
+#endif
 #include <io.h>
 #include <windows.h>
 #include <direct.h>
@@ -39,6 +44,7 @@ Date: January 2012
 #define chdir _chdir
 #define popen _popen
 #define pclose _pclose
+#include <util/pragma_pop.def>
 #endif
 
 /// \return current working directory
@@ -47,16 +53,18 @@ std::string get_current_working_directory()
   #ifndef _WIN32
   errno=0;
   char *wd=realpath(".", nullptr);
-  INVARIANT(
-    wd!=nullptr && errno==0,
-    std::string("realpath failed: ")+strerror(errno));
+
+  if(wd == nullptr || errno != 0)
+    throw system_exceptiont(
+      std::string("realpath failed: ") + std::strerror(errno));
 
   std::string working_directory=wd;
   free(wd);
   #else
   char buffer[4096];
   DWORD retval=GetCurrentDirectory(4096, buffer);
-  CHECK_RETURN(retval>0);
+  if(retval == 0)
+    throw system_exceptiont("failed to get current directory of process");
   std::string working_directory(buffer);
   #endif
 
@@ -95,7 +103,7 @@ void delete_directory_utf16(const std::wstring &path)
 void delete_directory(const std::string &path)
 {
 #ifdef _WIN32
-  delete_directory_utf16(utf8_to_utf16_little_endian(path));
+  delete_directory_utf16(utf8_to_utf16_native_endian(path));
 #else
   DIR *dir=opendir(path.c_str());
   if(dir!=nullptr)
@@ -112,7 +120,8 @@ void delete_directory(const std::string &path)
       struct stat stbuf;
       int result=stat(sub_path.c_str(), &stbuf);
       if(result!=0)
-        throw std::string("Stat failed: ")+std::strerror(errno);
+        throw system_exceptiont(
+          std::string("Stat failed: ") + std::strerror(errno));
 
       if(S_ISDIR(stbuf.st_mode))
         delete_directory(sub_path);
@@ -120,7 +129,8 @@ void delete_directory(const std::string &path)
       {
         result=remove(sub_path.c_str());
         if(result!=0)
-          throw std::string("Remove failed: ")+std::strerror(errno);
+          throw system_exceptiont(
+            std::string("Remove failed: ") + std::strerror(errno));
       }
     }
     closedir(dir);
@@ -136,12 +146,35 @@ std::string concat_dir_file(
   const std::string &file_name)
 {
   #ifdef _WIN32
-  return  (file_name.size()>1 &&
-           file_name[0]!='/' &&
-           file_name[1]!=':') ?
-           file_name : directory+"\\"+file_name;
+  return (file_name.size() > 1 && file_name[0] != '/' && file_name[1] == ':') ?
+          file_name : directory + "\\" + file_name;
   #else
   return (!file_name.empty() && file_name[0]=='/') ?
           file_name : directory+"/"+file_name;
   #endif
+}
+
+bool is_directory(const std::string &path)
+{
+  if(path.empty())
+    return false;
+
+#ifdef _WIN32
+
+  auto attributes = ::GetFileAttributesW(widen(path).c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES)
+    return false;
+  else
+    return (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+#else
+
+  struct stat buf;
+
+  if(stat(path.c_str(), &buf)!=0)
+    return false;
+  else
+    return (buf.st_mode & S_IFDIR) != 0;
+
+#endif
 }

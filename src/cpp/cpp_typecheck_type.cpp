@@ -186,7 +186,13 @@ void cpp_typecheckt::typecheck_type(typet &type)
           type.id()==ID_empty)
   {
   }
-  else if(type.id()==ID_symbol)
+  else if(type.id() == ID_symbol_type)
+  {
+  }
+  else if(type.id() == ID_struct_tag)
+  {
+  }
+  else if(type.id() == ID_union_tag)
   {
   }
   else if(type.id()==ID_constructor ||

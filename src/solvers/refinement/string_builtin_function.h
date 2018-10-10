@@ -10,6 +10,10 @@
 #include "string_constraint_generator.h"
 
 class array_poolt;
+struct string_constraintst;
+class string_constraint_generatort;
+
+#define CHARACTER_FOR_UNKNOWN '?'
 
 /// Base class for string functions that are built in the solver
 class string_builtin_functiont
@@ -28,6 +32,10 @@ public:
     return {};
   }
 
+  /// Given a function `get_value` which gives a valuation to expressions,
+  /// attempt to find the result of the builtin function.
+  /// If not enough information can be gathered from `get_value`, return an
+  /// empty optional.
   virtual optionalt<exprt>
   eval(const std::function<exprt(const exprt &)> &get_value) const = 0;
 
@@ -35,8 +43,8 @@ public:
 
   /// Add constraints ensuring that the value of result expression of the
   /// builtin function corresponds to the value of the function call.
-  virtual exprt
-  add_constraints(string_constraint_generatort &constraint_generator) const = 0;
+  virtual string_constraintst
+  constraints(string_constraint_generatort &constraint_generator) const = 0;
 
   /// Constraint ensuring that the length of the strings are coherent with
   /// the function call.
@@ -56,8 +64,8 @@ private:
   string_builtin_functiont() = default;
 
 protected:
-  explicit string_builtin_functiont(const exprt &return_code)
-    : return_code(return_code)
+  explicit string_builtin_functiont(exprt return_code)
+    : return_code(std::move(return_code))
   {
   }
 };
@@ -68,7 +76,16 @@ class string_transformation_builtin_functiont : public string_builtin_functiont
 public:
   array_string_exprt result;
   array_string_exprt input;
-  std::vector<exprt> args;
+
+  string_transformation_builtin_functiont(
+    exprt return_code,
+    array_string_exprt result,
+    array_string_exprt input)
+    : string_builtin_functiont(std::move(return_code)),
+      result(std::move(result)),
+      input(std::move(input))
+  {
+  }
 
   /// Constructor from arguments of a function application.
   /// The arguments in `fun_args` should be in order:
@@ -88,15 +105,6 @@ public:
   {
     return {input};
   }
-
-  /// Evaluate the result from a concrete valuation of the arguments
-  virtual std::vector<mp_integer> eval(
-    const std::vector<mp_integer> &input_value,
-    const std::vector<mp_integer> &args_value) const = 0;
-
-  optionalt<exprt>
-  eval(const std::function<exprt(const exprt &)> &get_value) const override;
-
   bool maybe_testing_function() const override
   {
     return false;
@@ -108,6 +116,8 @@ class string_concat_char_builtin_functiont
   : public string_transformation_builtin_functiont
 {
 public:
+  exprt character;
+
   /// Constructor from arguments of a function application.
   /// The arguments in `fun_args` should be in order:
   /// an integer `result.length`, a character pointer `&result[0]`,
@@ -118,26 +128,143 @@ public:
     array_poolt &array_pool)
     : string_transformation_builtin_functiont(return_code, fun_args, array_pool)
   {
+    PRECONDITION(fun_args.size() == 4);
+    character = fun_args[3];
   }
 
-  std::vector<mp_integer> eval(
-    const std::vector<mp_integer> &input_value,
-    const std::vector<mp_integer> &args_value) const override;
+  optionalt<exprt>
+  eval(const std::function<exprt(const exprt &)> &get_value) const override;
 
   std::string name() const override
   {
     return "concat_char";
   }
 
-  exprt add_constraints(string_constraint_generatort &generator) const override
+  string_constraintst
+  constraints(string_constraint_generatort &generator) const override;
+
+  exprt length_constraint() const override;
+};
+
+/// Setting a character at a particular position of a string
+class string_set_char_builtin_functiont
+  : public string_transformation_builtin_functiont
+{
+public:
+  exprt position;
+  exprt character;
+
+  /// Constructor from arguments of a function application.
+  /// The arguments in `fun_args` should be in order:
+  /// an integer `result.length`, a character pointer `&result[0]`,
+  /// a string `arg1` of type refined_string_typet, a position and a character.
+  string_set_char_builtin_functiont(
+    const exprt &return_code,
+    const std::vector<exprt> &fun_args,
+    array_poolt &array_pool)
+    : string_transformation_builtin_functiont(return_code, fun_args, array_pool)
   {
-    return generator.add_axioms_for_concat_char(result, input, args[0]);
+    PRECONDITION(fun_args.size() == 5);
+    position = fun_args[3];
+    character = fun_args[4];
   }
+
+  optionalt<exprt>
+  eval(const std::function<exprt(const exprt &)> &get_value) const override;
+
+  std::string name() const override
+  {
+    return "set_char";
+  }
+
+  string_constraintst
+  constraints(string_constraint_generatort &generator) const override;
+
+  // \todo: length_constraint is not the best possible name because we also
+  // \todo: add constraint about the return code
+  exprt length_constraint() const override;
+};
+
+/// Converting each uppercase character of Basic Latin and Latin-1 supplement
+/// to the corresponding lowercase character.
+class string_to_lower_case_builtin_functiont
+  : public string_transformation_builtin_functiont
+{
+public:
+  string_to_lower_case_builtin_functiont(
+    const exprt &return_code,
+    const std::vector<exprt> &fun_args,
+    array_poolt &array_pool)
+    : string_transformation_builtin_functiont(return_code, fun_args, array_pool)
+  {
+  }
+
+  optionalt<exprt>
+  eval(const std::function<exprt(const exprt &)> &get_value) const override;
+
+  std::string name() const override
+  {
+    return "to_lower_case";
+  }
+
+  string_constraintst
+  constraints(string_constraint_generatort &generator) const override;
 
   exprt length_constraint() const override
   {
-    return length_constraint_for_concat_char(result, input);
+    return and_exprt(
+      equal_exprt(result.length(), input.length()),
+      equal_exprt(return_code, from_integer(0, return_code.type())));
+  };
+};
+
+/// Converting each lowercase character of Basic Latin and Latin-1 supplement
+/// to the corresponding uppercase character.
+class string_to_upper_case_builtin_functiont
+  : public string_transformation_builtin_functiont
+{
+public:
+  string_to_upper_case_builtin_functiont(
+    const exprt &return_code,
+    const std::vector<exprt> &fun_args,
+    array_poolt &array_pool)
+    : string_transformation_builtin_functiont(return_code, fun_args, array_pool)
+  {
   }
+
+  string_to_upper_case_builtin_functiont(
+    exprt return_code,
+    array_string_exprt result,
+    array_string_exprt input)
+    : string_transformation_builtin_functiont(
+        std::move(return_code),
+        std::move(result),
+        std::move(input))
+  {
+  }
+
+  optionalt<exprt>
+  eval(const std::function<exprt(const exprt &)> &get_value) const override;
+
+  std::string name() const override
+  {
+    return "to_upper_case";
+  }
+
+  string_constraintst constraints(class symbol_generatort &fresh_symbol) const;
+
+  string_constraintst
+  constraints(string_constraint_generatort &generator) const override
+  {
+    return constraints(generator.fresh_symbol);
+  };
+
+  exprt length_constraint() const override
+  {
+    return and_exprt(
+      equal_exprt(result.length(), input.length()),
+      equal_exprt(return_code, from_integer(0, return_code.type())));
+  };
 };
 
 /// String inserting a string into another one
@@ -183,23 +310,10 @@ public:
     return "insert";
   }
 
-  exprt add_constraints(string_constraint_generatort &generator) const override
-  {
-    if(args.size() == 1)
-      return generator.add_axioms_for_insert(result, input1, input2, args[0]);
-    if(args.size() == 3)
-      UNIMPLEMENTED;
-    UNREACHABLE;
-  };
+  string_constraintst
+  constraints(string_constraint_generatort &generator) const override;
 
-  exprt length_constraint() const override
-  {
-    if(args.size() == 1)
-      return length_constraint_for_insert(result, input1, input2, args[0]);
-    if(args.size() == 3)
-      UNIMPLEMENTED;
-    UNREACHABLE;
-  };
+  exprt length_constraint() const override;
 
   bool maybe_testing_function() const override
   {
@@ -238,25 +352,10 @@ public:
     return "concat";
   }
 
-  exprt add_constraints(string_constraint_generatort &generator) const override
-  {
-    if(args.size() == 0)
-      return generator.add_axioms_for_concat(result, input1, input2);
-    if(args.size() == 2)
-      return generator.add_axioms_for_concat_substr(
-        result, input1, input2, args[0], args[1]);
-    UNREACHABLE;
-  };
+  string_constraintst
+  constraints(string_constraint_generatort &generator) const override;
 
-  exprt length_constraint() const override
-  {
-    if(args.size() == 0)
-      return length_constraint_for_concat(result, input1, input2);
-    if(args.size() == 2)
-      return length_constraint_for_concat_substr(
-        result, input1, input2, args[0], args[1]);
-    UNREACHABLE;
-  }
+  exprt length_constraint() const override;
 };
 
 /// String creation from other types
@@ -264,8 +363,12 @@ class string_creation_builtin_functiont : public string_builtin_functiont
 {
 public:
   array_string_exprt result;
-  std::vector<exprt> args;
-  exprt return_code;
+  exprt arg;
+
+  string_creation_builtin_functiont(
+    const exprt &return_code,
+    const std::vector<exprt> &fun_args,
+    array_poolt &array_pool);
 
   optionalt<array_string_exprt> string_result() const override
   {
@@ -276,6 +379,40 @@ public:
   {
     return false;
   }
+};
+
+/// String creation from integer types
+class string_of_int_builtin_functiont : public string_creation_builtin_functiont
+{
+public:
+  string_of_int_builtin_functiont(
+    const exprt &return_code,
+    const std::vector<exprt> &fun_args,
+    array_poolt &array_pool)
+    : string_creation_builtin_functiont(return_code, fun_args, array_pool)
+  {
+    PRECONDITION(fun_args.size() <= 4);
+    if(fun_args.size() == 4)
+      radix = fun_args[3];
+    else
+      radix = from_integer(10, arg.type());
+  };
+
+  optionalt<exprt>
+  eval(const std::function<exprt(const exprt &)> &get_value) const override;
+
+  std::string name() const override
+  {
+    return "string_of_int";
+  }
+
+  string_constraintst
+  constraints(string_constraint_generatort &generator) const override;
+
+  exprt length_constraint() const override;
+
+private:
+  exprt radix;
 };
 
 /// String test
@@ -322,19 +459,17 @@ public:
   }
 
   optionalt<exprt>
-  eval(const std::function<exprt(const exprt &)> &get_value) const override
+  eval(const std::function<exprt(const exprt &)> &) const override
   {
     return {};
   }
 
-  exprt add_constraints(string_constraint_generatort &generator) const override
-  {
-    return generator.add_axioms_for_function_application(function_application);
-  };
+  string_constraintst
+  constraints(string_constraint_generatort &generator) const override;
 
   exprt length_constraint() const override
   {
-    // For now, there is no need for implementing that as `add_constraints`
+    // For now, there is no need for implementing that as `constraints`
     // should always be called on these functions
     UNIMPLEMENTED;
   }

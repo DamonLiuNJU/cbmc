@@ -19,11 +19,10 @@ irep_idt uncaught_exceptions_domaint::get_exception_type(const typet &type)
 {
   PRECONDITION(type.id()==ID_pointer);
 
-  if(type.subtype().id()==ID_symbol)
-  {
+  if(type.subtype().id() == ID_symbol_type)
     return to_symbol_type(type.subtype()).get_identifier();
-  }
-  return ID_empty;
+  else
+    return ID_empty;
 }
 
 /// Returns the symbol corresponding to an exception
@@ -59,7 +58,7 @@ void uncaught_exceptions_domaint::join(
 void uncaught_exceptions_domaint::transform(
   const goto_programt::const_targett from,
   uncaught_exceptions_analysist &uea,
-  const namespacet &ns)
+  const namespacet &)
 {
   const goto_programt::instructiont &instruction=*from;
 

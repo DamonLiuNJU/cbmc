@@ -31,38 +31,47 @@ Author: Daniel Kroening, kroening@kroening.com
   "(disable-uncaught-exception-check)" \
   "(throw-assertion-error)" \
   "(java-assume-inputs-non-null)" \
-  "(java-throw-runtime-exceptions)" \
-  "(java-max-input-array-length):" \
-  "(java-max-input-tree-depth):" \
+  "(throw-runtime-exceptions)" \
+  "(max-nondet-array-length):" \
+  "(max-nondet-tree-depth):" \
   "(java-max-vla-length):" \
   "(java-cp-include-files):" \
-  "(lazy-methods)" \
+  "(no-lazy-methods)" \
   "(lazy-methods-extra-entry-point):" \
   "(java-load-class):" \
   "(java-no-load-class):"
 
-#define JAVA_BYTECODE_LANGUAGE_OPTIONS_HELP /*NOLINT*/                                          \
-  " --disable-uncaught-exception-check" \
-  "                                  ignore uncaught exceptions and errors\n" \
-  " --throw-assertion-error          throw java.lang.AssertionError on violated\n"               /* NOLINT(*) */ \
-  "                                  assert statements instead of failing\n" \
-  "                                  at the location of the assert statement\n"                  /* NOLINT(*) */ \
-  " --java-assume-inputs-non-null    never initialize reference-typed parameter to the\n"        /* NOLINT(*) */ \
-  "                                  entry point with null\n"                                    /* NOLINT(*) */ \
-  " --java-throw-runtime-exceptions  make implicit runtime exceptions explicit\n"                /* NOLINT(*) */ \
-  " --java-max-input-array-length N  limit input array size to <= N\n"                           /* NOLINT(*) */ \
-  " --java-max-input-tree-depth N    object references are (deterministically) set to null in\n" /* NOLINT(*) */ \
-  "                                  the object\n"                                               /* NOLINT(*) */ \
-  " --java-max-vla-length            limit the length of user-code-created arrays\n"             /* NOLINT(*) */ \
-  " --java-cp-include-files          regexp or JSON list of files to load (with '@' prefix)\n"   /* NOLINT(*) */ \
-  " --lazy-methods                   only translate methods that appear to be reachable from\n"  /* NOLINT(*) */ \
-  "                                  the --function entry point or main class\n"                 /* NOLINT(*) */ \
-  "                                  Note --show-symbol-table/goto-functions/properties output\n"/* NOLINT(*) */ \
-  "                                  will be restricted to loaded methods in this case\n"        /* NOLINT(*) */ \
-  " --lazy-methods-extra-entry-point METHODNAME\n"                                               /* NOLINT(*) */ \
-  "                                  treat METHODNAME as a possible program entry point for\n"   /* NOLINT(*) */ \
-  "                                  the purpose of lazy method loading\n"                       /* NOLINT(*) */ \
-  "                                  A '.*' wildcard is allowed to specify all class members\n"
+#define JAVA_BYTECODE_LANGUAGE_OPTIONS_HELP /*NOLINT*/ \
+  " --disable-uncaught-exception-check\n" \
+  "                              ignore uncaught exceptions and errors\n" \
+  " --throw-assertion-error      throw java.lang.AssertionError on violated\n" \
+  "                              assert statements instead of failing\n" \
+  "                              at the location of the assert statement\n" \
+  " --throw-runtime-exceptions   make implicit runtime exceptions explicit\n" \
+  " --max-nondet-array-length N  limit nondet (e.g. input) array size to <= N\n" /* NOLINT(*) */ \
+  " --max-nondet-tree-depth N    limit size of nondet (e.g. input) object tree;\n" /* NOLINT(*) */ \
+  "                              at level N references are set to null\n" /* NOLINT(*) */ \
+  " --java-assume-inputs-non-null\n" \
+  "                              never initialize reference-typed parameter to the\n" /* NOLINT(*) */ \
+  "                              entry point with null\n" /* NOLINT(*) */ \
+  " --java-max-vla-length N      limit the length of user-code-created arrays\n" /* NOLINT(*) */ \
+  " --java-cp-include-files r    regexp or JSON list of files to load\n" \
+  "                              (with '@' prefix)\n" \
+  " --no-lazy-methods            load and translate all methods given on\n" \
+  "                              the command line and in --classpath\n" \
+  "                              Default is to load methods that appear to be\n" /* NOLINT(*) */ \
+  "                              reachable from the --function entry point\n" \
+  "                              or main class\n" \
+  "                              Note that --show-symbol-table, --show-goto-functions\n" /* NOLINT(*) */ \
+  "                              and --show-properties output are restricted to\n" /* NOLINT(*) */ \
+  "                              loaded methods by default.\n" \
+  " --lazy-methods-extra-entry-point METHODNAME\n" \
+  "                              treat METHODNAME as a possible program entry\n" /* NOLINT(*) */ \
+  "                              point for the purpose of lazy method loading\n" /* NOLINT(*) */ \
+  "                              METHODNAME can be a regex that will be matched\n" /* NOLINT(*) */ \
+  "                              against all symbols. If missing a java:: prefix\n"    /* NOLINT(*) */ \
+  "                              will be added. If no descriptor is found, all\n"/* NOLINT(*) */ \
+  "                              overloads of a method will also be added.\n"
 // clang-format on
 
 class symbolt;
@@ -79,7 +88,7 @@ enum lazy_methods_modet
 class java_bytecode_languaget:public languaget
 {
 public:
-  virtual void get_language_options(const cmdlinet &) override;
+  void set_language_options(const optionst &) override;
 
   virtual bool preprocess(
     std::istream &instream,
@@ -110,13 +119,14 @@ public:
       lazy_methods_mode(lazy_methods_modet::LAZY_METHODS_MODE_EAGER),
       string_refinement_enabled(false),
       pointer_type_selector(std::move(pointer_type_selector))
-  {}
+  {
+  }
 
   java_bytecode_languaget():
     java_bytecode_languaget(
       std::unique_ptr<select_pointer_typet>(new select_pointer_typet()))
-  {}
-
+  {
+  }
 
   bool from_expr(
     const exprt &expr,
@@ -173,18 +183,20 @@ protected:
   size_t max_user_array_length;     // max size for user code created arrays
   method_bytecodet method_bytecode;
   lazy_methods_modet lazy_methods_mode;
-  std::vector<irep_idt> lazy_methods_extra_entry_points;
   bool string_refinement_enabled;
   bool throw_runtime_exceptions;
   bool assert_uncaught_exceptions;
   bool throw_assertion_error;
   java_string_library_preprocesst string_preprocess;
   std::string java_cp_include_files;
+  bool nondet_static;
 
   // list of classes to force load even without reference from the entry point
   std::vector<irep_idt> java_load_classes;
 
 private:
+  virtual std::vector<load_extra_methodst>
+  build_extra_entry_points(const optionst &) const;
   const std::unique_ptr<const select_pointer_typet> pointer_type_selector;
 
   /// Maps synthetic method names on to the particular type of synthetic method
@@ -195,8 +207,12 @@ private:
   class_hierarchyt class_hierarchy;
   // List of classes to never load
   std::unordered_set<std::string> no_load_classes;
+
+  std::vector<load_extra_methodst> extra_methods;
 };
 
 std::unique_ptr<languaget> new_java_bytecode_language();
+
+void parse_java_language_options(const cmdlinet &cmd, optionst &options);
 
 #endif // CPROVER_JAVA_BYTECODE_JAVA_BYTECODE_LANGUAGE_H

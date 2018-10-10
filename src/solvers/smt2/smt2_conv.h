@@ -108,7 +108,7 @@ public:
 
   // overloading interfaces
   virtual literalt convert(const exprt &expr);
-  virtual void set_frozen(literalt a) { /* not needed */ }
+  virtual void set_frozen(literalt) { /* not needed */ }
   virtual void set_to(const exprt &expr, bool value);
   virtual exprt get(const exprt &expr) const;
   virtual std::string decision_procedure_text() const { return "SMT2"; }
@@ -241,11 +241,11 @@ protected:
   std::string floatbv_suffix(const exprt &) const;
   std::set<irep_idt> bvfp_set; // already converted
 
-  class smt2_symbolt:public exprt
+  class smt2_symbolt : public nullary_exprt
   {
   public:
-    smt2_symbolt(const irep_idt &_identifier, const typet &_type):
-      exprt(ID_smt2_symbol, _type)
+    smt2_symbolt(const irep_idt &_identifier, const typet &_type)
+      : nullary_exprt(ID_smt2_symbol, _type)
     { set(ID_identifier, _identifier); }
 
     const irep_idt &get_identifier() const

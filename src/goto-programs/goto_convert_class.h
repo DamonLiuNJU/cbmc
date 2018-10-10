@@ -126,8 +126,7 @@ protected:
     bool result_is_used);
   void remove_cpp_delete(
     side_effect_exprt &expr,
-    goto_programt &dest,
-    bool result_is_used);
+    goto_programt &dest);
   void remove_malloc(
     side_effect_exprt &expr,
     goto_programt &dest,
@@ -135,8 +134,7 @@ protected:
     bool result_is_used);
   void remove_temporary_object(
     side_effect_exprt &expr,
-    goto_programt &dest,
-    bool result_is_used);
+    goto_programt &dest);
   void remove_statement_expression(
     side_effect_exprt &expr,
     goto_programt &dest,
@@ -195,7 +193,7 @@ protected:
     const exprt::operandst &arguments,
     goto_programt &dest);
 
-  virtual void do_function_call_symbol(const symbolt &symbol)
+  virtual void do_function_call_symbol(const symbolt &)
   {
   }
 
@@ -236,8 +234,10 @@ protected:
     const code_whilet &code,
     goto_programt &dest,
     const irep_idt &mode);
-  void
-  convert_dowhile(const codet &code, goto_programt &dest, const irep_idt &mode);
+  void convert_dowhile(
+    const code_dowhilet &code,
+    goto_programt &dest,
+    const irep_idt &mode);
   void convert_assume(
     const code_assumet &code,
     goto_programt &dest,
@@ -631,12 +631,10 @@ protected:
     const exprt::operandst &arguments,
     goto_programt &dest);
   void do_input(
-    const exprt &lhs,
     const exprt &rhs,
     const exprt::operandst &arguments,
     goto_programt &dest);
   void do_output(
-    const exprt &lhs,
     const exprt &rhs,
     const exprt::operandst &arguments,
     goto_programt &dest);

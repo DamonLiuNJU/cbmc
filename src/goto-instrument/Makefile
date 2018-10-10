@@ -12,6 +12,7 @@ SRC = accelerate/accelerate.cpp \
       accelerate/scratch_program.cpp \
       accelerate/trace_automaton.cpp \
       accelerate/util.cpp \
+      aggressive_slicer.cpp \
       alignment_checks.cpp \
       branch.cpp \
       call_sequences.cpp \
@@ -99,7 +100,7 @@ CLEANFILES = goto-instrument$(EXEEXT) goto-instrument$(LIBEXT)
 include ../config.inc
 include ../common
 
-all: goto-instrument$(EXEEXT) goto-instrument$(LIBEXT)
+all: goto-instrument$(EXEEXT)
 
 ifneq ($(LIB_GLPK),)
   LIBS += $(LIB_GLPK)
@@ -110,9 +111,6 @@ endif
 
 goto-instrument$(EXEEXT): $(OBJ)
 	$(LINKBIN)
-
-goto-instrument$(LIBEXT): $(OBJ)
-	$(LINKLIB)
 
 .PHONY: goto-instrument-mac-signed
 

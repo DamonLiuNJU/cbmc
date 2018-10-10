@@ -5,103 +5,62 @@
 
 \author Kareem Khazem, Martin Brain
 
-\section overview Overview
+\section goto-programs-overview Overview
 Goto programs are the intermediate representation of the CPROVER tool
 chain. They are language independent and similar to many of the compiler
-intermediate languages. Section \ref goto-programs describes the
-`goto_programt` and `goto_functionst` data structures in detail. However
-it useful to understand some of the basic concepts. Each function is a
-list of instructions, each of which has a type (one of 18 kinds of
+intermediate languages. Each function is a
+list of instructions, each of which has a type (one of 19 kinds of
 instruction), a code expression, a guard expression and potentially some
 targets for the next instruction. They are not natively in static
 single-assign (SSA) form. Transitions are nondeterministic (although in
 practise the guards on the transitions normally cover form a disjoint
 cover of all possibilities). Local variables have non-deterministic
-values if they are not initialised.  Variables and data within the
-program is commonly one of three types (parameterised by width):
-`unsignedbv_typet`, `signedbv_typet` and `floatbv_typet`, see
-`util/std_types.h` for more information. Goto programs can be serialised
+values if they are not initialised. Goto programs can be serialised
 in a binary (wrapped in ELF headers) format or in XML (see the various
 `_serialization` files).
 
-The `cbmc` option `–show-goto-programs` is often a good starting point
+The `cbmc` option `--show-goto-programs` is often a good starting point
 as it outputs goto-programs in a human readable form. However there are
 a few things to be aware of. Functions have an internal name (for
 example `c::f00`) and a ‘pretty name’ (for example `f00`) and which is
 used depends on whether it is internal or being presented to the user.
-The `main` method is the ‘logical’ main which is not necessarily the
-main method from the code. In the output `NONDET` is use to represent a
-nondeterministic assignment to a variable. Likewise `IF` as a beautified
-`GOTO` instruction where the guard expression is used as the condition.
-`RETURN` instructions may be dropped if they precede an `END_FUNCTION`
-instruction. The comment lines are generated from the `locationt` field
+`NONDET(some_type)` is use to represent a nondeterministic value.
+`IF guard GOTO x` represents a GOTO instruction with a guard, not a distinct
+`IF` instruction.
+The comment lines are generated from the `source_location` field
 of the `instructiont` structure.
 
-`goto-programs/` is one of the few places in the CPROVER codebase that
-templates are used. The intention is to allow the general architecture
-of program and functions to be used for other formalisms.  At the moment
-most of the templates have a single instantiation; for example
-`goto_functionst` and `goto_function_templatet` and `goto_programt` and
-`goto_program_templatet`.
+\section goto_data_structures Data Structures
 
-\section data_structures Data Structures
-
-FIXME: This text is partially outdated.
-
-The common starting point for working with goto-programs is the
-`read_goto_binary` function which populates an object of
-`goto_functionst` type. This is defined in `goto_functions.h` and is an
-instantiation of the template `goto_functions_templatet` which is
-contained in `goto_functions_template.h`. They are wrappers around a map
-from strings to `goto_programt`’s and iteration macros are provided.
-Note that `goto_function_templatet` (no `s`) is defined in the same
-header as `goto_functions_templatet` and is gives the C type for the
-function and Boolean which indicates whether the body is available
-(before linking this might not always be true). Also note the slightly
-counter-intuitive naming; `goto_functionst` instances are the top level
+A \ref goto_functionst object contains a set of GOTO programs. Note the
+counter-intuitive naming: `goto_functionst` instances are the top level
 structure representing the program and contain `goto_programt` instances
-which represent the individual functions. At the time of writing
-`goto_functionst` is the only instantiation of the template
-`goto_functions_templatet` but other could be produced if a different
-data-structures / kinds of models were needed for functions.
+which represent the individual functions.
 
-`goto_programt` is also an instantiation of a template. In a similar
-fashion it is `goto_program_templatet` and allows the types of the guard
-and expression used in instructions to be parameterised. Again, this is
-currently the only use of the template. As such there are only really
-helper functions in `goto_program.h` and thus `goto_program_template.h`
-is probably the key file that describes the representation of (C)
-functions in the goto-program format. It is reasonably stable and
-reasonably documented and thus is a good place to start looking at the
-code.
-
-An instance of `goto_program_templatet` is effectively a list of
-instructions (and inner template called `instructiont`). It is important
+An instance of \ref goto_programt is effectively a list of
+instructions (a nested class called \ref goto_programt::instructiont).
+It is important
 to use the copy and insertion functions that are provided as iterators
 are used to link instructions to their predecessors and targets and
-careless manipulation of the list could break these. Likewise there are
-helper macros for iterating over the instructions in an instance of
-`goto_program_templatet` and the use of these is good style and strongly
-encouraged.
+careless manipulation of the list could break these.
 
-Individual instructions are instances of type `instructiont`. They
-represent one step in the function.  Each has a type, an instance of
-`goto_program_instruction_typet` which denotes what kind of instruction
+Individual instructions are instances of type \ref goto_programt::instructiont.
+They represent one step in the function.  Each has a type, an instance of
+\ref goto_program_instruction_typet which denotes what kind of instruction
 it is. They can be computational (such as `ASSIGN` or `FUNCTION_CALL`),
 logical (such as `ASSUME` and `ASSERT`) or informational (such as
-`LOCATION` and `DEAD`). At the time of writing there are 18 possible
+`LOCATION` and `DEAD`). At the time of writing there are 19 possible
 values for `goto_program_instruction_typet` / kinds of instruction.
 Instructions also have a guard field (the condition under which it is
 executed) and a code field (what the instruction does). These may be
-empty depending on the kind of instruction. In the default
-instantiations these are of type `exprt` and `codet` respectively and
-thus covered by the previous discussion of `irept` and its descendents.
-The next instructions (remembering that transitions are guarded by
+empty depending on the kind of instruction.
+These are of type \ref exprt and \ref codet respectively.
+The next instructions (remembering that transitions may be
 non-deterministic) are given by the list `targets` (with the
 corresponding list of labels `labels`) and the corresponding set of
 previous instructions is get by `incoming_edges`. Finally `instructiont`
-have informational `function` and `location` fields that indicate where
-they are in the code.
+has informational `function` and `source_location` fields that indicate where
+they are in the source code.
 
 \section goto-conversion Goto Conversion
 
@@ -124,8 +83,12 @@ digraph G {
 }
 \enddot
 
-At this stage, CBMC constructs a goto-program from a symbol table. It
-does not use the parse tree or the source file at all for this step. This
+At this stage, CBMC constructs a goto-program from a symbol table.
+Each symbol in the symbol table with function type (that is, the symbol's `type`
+field contains a \ref code_typet) will be converted to a corresponding GOTO
+program.
+
+It does not use the parse tree or the source file at all for this step. This
 may seem surprising, because the symbols are stored in a hash table and
 therefore have no intrinsic order; nevertheless, every \ref symbolt is
 associated with a \ref source_locationt, allowing CBMC to figure out the
@@ -282,18 +245,6 @@ This is not the final form of the goto-functions, since the lists of
 instructions will be 'normalized' in the next step (Instrumentation),
 which removes some instructions and adds targets to others.
 
-Note that goto_programt and goto_functionst are each template
-instantiations; they are currently the *only* specialization of
-goto_program_templatet and goto_functions_templatet, respectively. This
-means that the generated Doxygen documentation can be somewhat obtuse
-about the actual types of things, and is unable to generate links to the
-correct classes. Note that the
-\ref goto_programt::instructiont::code "code" member of a
-goto_programt's instruction has type \ref codet (its type in the
-goto_program_templatet documentation is given as "codeT", as this is the
-name of the template's type parameter); similarly, the type of a guard
-of an instruction is \ref guardt.
-
 ---
 \section instrumentation Instrumentation
 
@@ -324,8 +275,15 @@ previous stage:
   are littered with \ref code_skipt "skip" statements. The
   instrumentation stage removes the majority of these.
 
-* Function pointers are removed. They are turned into switch statements
-  (but see the next point; switch statements are further transformed).
+* Variable lifespan implied by \ref code_declt instructions and lexical scopes
+  described by \ref code_blockt nodes is replaced by `DECL` and corresponding
+  `DEAD` instructions. There are therefore no lexical scopes in GOTO programs
+  (not even local variable death on function exit is enforced).
+
+* Expressions with side-effects are explicitly ordered so that there is one
+  effect per instruction (apart from function call instructions, which can
+  still have many). For example, `y = f() + x++` will have become something like
+  `tmp1 = f(); y = tmp1 + x; x = x + 1;`
 
 * Compound blocks are eliminated. There are several subclasses of
   \ref codet that count as 'compound blocks;' therefore, later stages in
@@ -362,12 +320,192 @@ previous stage:
 * \ref code_returnt "return statements" are transformed into
   (unconditional) GOTOs whose target is the \ref END_FUNCTION
   instruction. Each goto_programt should have precisely one such
-  instruction. Note the presence of \ref code_deadt, which has a
-  \ref code_deadt::symbol() "symbol()" member. Deads mark symbols that
-  have just gone out of scope; typically, a GOTO that jumps to an
-  END_FUNCTION instruction is preceded by a series of deads. Deads also
-  follow sequences of instructions that were part of the body of a
-  block (loop, conditional etc.) if there were symbols declared in that
-  block.
+  instruction.
 
 This stage concludes the *analysis-independent* program transformations.
+
+\subsection goto-program-example-section Example:
+
+\subsubsection goto-program-example-1-section Unsigned mult (unsigned a, unsigned b) { int acc, i; for (i = 0; i < b; i++) acc += a; return acc; }
+
+To be documented.
+
+
+\section section-goto-binary Binary Representation
+
+An instance of `::goto_modelt` can be serialised to a binary stream (which is
+typically a file on the disk), and later deserialised from that stream back to
+an equivalent `::goto_modelt` instance.
+
+\subsection subsection-goto-binary-serialisation Serialisation
+
+The serialisation is implemented in C++ modules:
+  - `write_goto_binary.h`
+  - `write_goto_binary.cpp`
+
+To serialise a `::goto_modelt` instance `gm` to a stream `ostr` call the
+function `::write_goto_binary`, e.g. `write_goto_binary(ostr, gm)`.
+
+The content of the written stream will have this structure:
+  - The header:
+    - A magic number: byte `0x7f` followed by 3 characters `GBF`.
+    - A version number written in the 7-bit encoding (see [number serialisation](\ref irep-serialization-numbers)). Currently, only version `4` is supported.
+  - The symbol table:
+    - The number of symbols in the table in the 7-bit encoding.
+    - The array of individual symbols in the table. Each written symbol `s` has this structure:
+      - The `::irept` instance `s.type`.
+      - The `::irept` instance `s.value`.
+      - The `::irept` instance `s.location`.
+      - The string `s.name`.
+      - The string `s.module`.
+      - The string `s.base_name`.
+      - The string `s.mode`.
+      - The string `s.pretty_name`.
+      - The number `0` in the 7-bit encoding.
+      - The flags word in the 7-bit encoding. The bits in the flags word correspond to the following `Boolean` fields (from the most significant bit):
+        - `s.is_weak`
+        - `s.is_type`
+        - `s.is_property`
+        - `s.is_macro`
+        - `s.is_exported`
+        - `s.is_input`
+        - `s.is_output`
+        - `s.is_state_var`
+        - `s.is_parameter`
+        - `s.is_auxiliary`
+        - `0` (corresponding to `s.binding`, i.e. we always clear this info)
+        - `s.is_lvalue`
+        - `s.is_static_lifetime`
+        - `s.is_thread_local`
+        - `s.is_file_local`
+        - `s.is_extern`
+        - `s.is_volatile`
+  - The functions with bodies, i.e. those missing a body are skipped.
+    - The number of functions with bodies in the 7-bit encoding.
+    - The array of individual functions with bodies. Each written function has this structure:
+      - The string with the name of the function.
+      - The number of instructions in the body of the function in the 7-bit encoding.
+      - The array of individual instructions in function's body. Each written instruction `I` has this structure:
+        - The `::irept` instance `I.code`, i.e. data of the instruction, like arguments.
+        - The string `I.function`, i.e. the name of the function this instruction belongs to.
+        - The `::irept` instance `I.source_location`, i.e. the reference to the original source code (file, line).
+        - The word in the 7-bit encoding `I.type`, i.e. the op-code of the instruction.
+        - The `::irept` instance `I.guard`.
+        - The empty string (representing former `I.event`).
+        - The word in the 7-bit encoding `I.target_number`, i.e. the jump target to this instruction from other instructions.
+        - The word in the 7-bit encoding `I.targets.size()`, i.e. the count of jump targets from this instruction.
+        - The array of individual jump targets from this instruction, each written as a word in the 7-bit encoding.
+        - The word in the 7-bit encoding `I.labels.size()`.
+        - The array of individual labels, each written as a word in the 7-bit encoding.
+
+An important propery of the serialisation is that each serialised `::irept`
+instance occurs in the stream exactly once. Namely, in the position of
+its first serialisation query. All other such queries save only a hash
+code (i.e. reference) of the `::irept` instance.
+
+A similar strategy is used for serialisation of string constants
+shared amongst `::irept` instances. Such a string is fully saved only in
+the first serialisation query of an `::irept` instance it appears in and
+all other queries only save its integer hash code.
+
+Details about serialisation of `::irept` instances, strings, and words in
+7-bit encoding can be found [here](\ref irep-serialization).
+
+\subsection subsection-goto-binary-deserialisation Deserialisation
+
+The deserialisation is implemented in C++ modules:
+  - `read_goto_binary.h`
+  - `read_goto_binary.cpp`
+  - `read_bin_goto_object.h`
+  - `read_bin_goto_object.cpp`
+
+The first two modules are responsible for location of the stream with the
+serialised data within a passed file. And the remaining two modules
+perform the actual deserialisation of a `::goto_modelt` instance from
+the located stream.
+
+To deserialise a `::goto_modelt` instance `gm` from a file
+`/some/path/name.gbf` call the function `::read_goto_binary`, e.g.
+`read_goto_binary("/some/path/name.gbf", gm, message_handler)`, where
+`message_handler` must be an instance of `::message_handlert` and serves
+for reporting issues during the process.
+
+The passed binary file is assumed to have the same structure as described in
+the [previous subsection](\ref subsection-goto-binary-serialisation).
+The process of the deserialisation does not involve any seeking in the file.
+The content is read linearly from the beginning to the end. `::irept` instances
+and their string constants are deserialised into the memory only once at their
+first occurrences in the stream. All subsequent deserialisation queries are
+resolved as in-memory references to already deserialised the `::irept`
+instances and/or strings, based on hash code matching.
+
+NOTE: The first deserialisation is detected so that the loaded hash code
+is new. That implies that the full definition follows right after the hash.
+
+Details about serialisation of `::irept` instances, strings, and words in
+7-bit encoding can be found [here](\ref irep-serialization).
+
+\subsubsection subsection-goto-binary-deserialisation-from-elf Deserialisation from ELF image
+
+One can decide to store the serialised stream as a separate section, named
+`goto-cc`, into an ELF image. Then the deserialisation has a support of
+automatic detection of that section in an ELF file and the deserialisation
+will be automatically started from that section.
+
+For reading the ELF images there is used an instance of `::elf_readert`
+implemented in the C++ module:
+  - `elf_reader.h`
+  - `elf_reader.cpp`
+
+\subsubsection subsection-goto-binary-deserialisation-from-mach-o-fat-image Deserialisation from Mach-O fat image
+
+One can decide to store the serialised stream into Mach-O fat image as a
+separate non-empty section with flags `CPU_TYPE_HPPA` and
+`CPU_SUBTYPE_HPPA_7100LC`. Then the deserialisation has a support of
+automatic detection of that section in a Mach-O fat image, extraction
+of the section from the emage into a temporary file (this is done by
+calling `lipo` utility with `-thin hppa7100LC` option), and the
+deserialisation will be automatically started from that temporary
+file.
+
+For reading the Mach-O fat images there is used an instance of
+`::osx_fat_readert` implemented in the C++ module:
+  - `osx_fat_reader.h`
+  - `osx_fat_reader.cpp`
+
+NOTE: This functionality is available only when the modules are built
+on a MacOS machine.
+
+\subsubsection subsection-goto-binary-is-binary-file Checking file type
+
+You can use function `::is_goto_binary` to check whether a passed file contains
+a deserialised `::goto_modelt` instance or not. This is done by checking the
+magic number of the stream (see subsection
+[Serialisation](\ref subsection-goto-binary-serialisation)). However, in the
+case when the deserialised data were stored into ELF or Mach-O fat image, then
+only the check for presence of the concrete section in the image is performed.
+
+\subsubsection subsection-goto-binary-deserialisation-linking Linking Goto Models
+
+Similar to linking of object files together by C/C++ linker, the module
+provides linking of a dereserialised `::goto_modelt` instance into a given
+(i.e. previously deserialised or otherwise created) `::goto_modelt` instance.
+
+This is implemented in function `::read_object_and_link`. The function first
+deserialises the passed file into a temporary `::goto_modelt` instance, and
+then it performs 'linking' of the temporary into a passed destination
+`::goto_modelt` instance.
+
+Details about linking of `::goto_modelt` instances can be found
+[here](\ref section-linking-goto-models).
+
+
+\section section-linking-goto-models Linking Goto Models
+
+C++ modules:
+  - `link_goto_model.h`
+  - `link_goto_model.cpp`
+
+Dependencies:
+  - [linking folder](\ref linking).
+  - [typecheck](\ref section-goto-typecheck).

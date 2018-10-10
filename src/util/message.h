@@ -18,9 +18,8 @@ Author: Daniel Kroening, kroening@kroening.com
 #include "invariant.h"
 #include "json.h"
 #include "source_location.h"
-#include "xml.h"
 
-class json_stream_arrayt;
+class xmlt;
 
 class message_handlert
 {
@@ -36,12 +35,6 @@ public:
     // no-op by default
   }
 
-  /// Return the underlying JSON stream
-  virtual json_stream_arrayt &get_json_stream()
-  {
-    UNREACHABLE;
-  }
-
   virtual void print(unsigned level, const jsont &json)
   {
     // no-op by default
@@ -50,7 +43,6 @@ public:
   virtual void print(
     unsigned level,
     const std::string &message,
-    int sequence_number,
     const source_locationt &location);
 
   virtual void flush(unsigned level)
@@ -65,7 +57,7 @@ public:
   void set_verbosity(unsigned _verbosity) { verbosity=_verbosity; }
   unsigned get_verbosity() const { return verbosity; }
 
-  unsigned get_message_count(unsigned level) const
+  std::size_t get_message_count(unsigned level) const
   {
     if(level>=message_count.size())
       return 0;
@@ -73,9 +65,16 @@ public:
     return message_count[level];
   }
 
+  /// \brief Create an ECMA-48 SGR (Select Graphic Rendition) command.
+  /// The default behavior is no action.
+  virtual std::string command(unsigned) const
+  {
+    return std::string();
+  }
+
 protected:
   unsigned verbosity;
-  std::vector<unsigned> message_count;
+  std::vector<std::size_t> message_count;
 };
 
 class null_message_handlert:public message_handlert
@@ -89,8 +88,7 @@ public:
   virtual void print(
     unsigned level,
     const std::string &message,
-    int sequence_number,
-    const source_locationt &location)
+    const source_locationt &)
   {
     print(level, message);
   }
@@ -248,14 +246,6 @@ public:
       return func(*this);
     }
 
-    /// Returns a reference to the top-level JSON array stream
-    json_stream_arrayt &json_stream()
-    {
-      if(this->tellp() > 0)
-        *this << eom; // force end of previous message
-      return message.message_handler->get_json_stream();
-    }
-
   private:
     void assign_from(const mstreamt &other)
     {
@@ -276,7 +266,6 @@ public:
       m.message.message_handler->print(
         m.message_level,
         m.str(),
-        -1,
         m.source_location);
       m.message.message_handler->flush(m.message_level);
     }
@@ -291,6 +280,52 @@ public:
   {
     static_cast<std::ostream &>(m) << std::endl;
     return m;
+  }
+
+  /// \brief Create an ECMA-48 SGR (Select Graphic Rendition) command.
+  std::string command(unsigned c) const
+  {
+    if(message_handler)
+      return message_handler->command(c);
+    else
+      return std::string();
+  }
+
+  /// return to default formatting,
+  /// as defined by the terminal
+  std::string reset() const
+  {
+    return command(0);
+  }
+
+  /// render text with red foreground color
+  std::string red() const
+  {
+    return command(31);
+  }
+
+  /// render text with green foreground color
+  std::string green() const
+  {
+    return command(32);
+  }
+
+  /// render text with yellow foreground color
+  std::string yellow() const
+  {
+    return command(33);
+  }
+
+  /// render text with blue foreground color
+  std::string blue() const
+  {
+    return command(34);
+  }
+
+  /// render text with bold font
+  std::string bold() const
+  {
+    return command(1);
   }
 
   mstreamt &get_mstream(unsigned message_level) const

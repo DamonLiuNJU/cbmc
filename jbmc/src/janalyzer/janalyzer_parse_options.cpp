@@ -49,8 +49,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/exit_codes.h>
 #include <util/options.h>
 #include <util/unicode.h>
-
-#include <cbmc/version.h>
+#include <util/version.h>
 
 #include <goto-analyzer/static_show_domain.h>
 #include <goto-analyzer/static_simplifier.h>
@@ -61,7 +60,7 @@ Author: Daniel Kroening, kroening@kroening.com
 janalyzer_parse_optionst::janalyzer_parse_optionst(int argc, const char **argv)
   : parse_options_baset(JANALYZER_OPTIONS, argc, argv),
     messaget(ui_message_handler),
-    ui_message_handler(cmdline, "JANALYZER " CBMC_VERSION)
+    ui_message_handler(cmdline, std::string("JANALYZER ") + CBMC_VERSION)
 {
 }
 
@@ -77,6 +76,8 @@ void janalyzer_parse_optionst::get_command_line_options(optionst &options)
     usage_error();
     exit(CPROVER_EXIT_USAGE_ERROR);
   }
+
+  parse_java_language_options(cmdline, options);
 
   // check assertions
   if(cmdline.isset("no-assertions"))
@@ -343,7 +344,7 @@ int janalyzer_parse_optionst::doit()
   //
   // Print a banner
   //
-  status() << "JANALYZER version " CBMC_VERSION " " << sizeof(void *) * 8
+  status() << "JANALYZER version " << CBMC_VERSION << " " << sizeof(void *) * 8
            << "-bit " << config.this_architecture() << " "
            << config.this_operating_system() << eom;
 
@@ -351,7 +352,7 @@ int janalyzer_parse_optionst::doit()
 
   try
   {
-    goto_model = initialize_goto_model(cmdline, get_message_handler());
+    goto_model = initialize_goto_model(cmdline, get_message_handler(), options);
   }
 
   catch(const char *e)
@@ -378,7 +379,7 @@ int janalyzer_parse_optionst::doit()
   // show it?
   if(cmdline.isset("show-symbol-table"))
   {
-    ::show_symbol_table(goto_model.symbol_table, get_ui());
+    ::show_symbol_table(goto_model.symbol_table, ui_message_handler);
     return CPROVER_EXIT_SUCCESS;
   }
 
@@ -588,7 +589,7 @@ int janalyzer_parse_optionst::perform_analysis(const optionst &options)
     if(options.get_bool_option("show"))
     {
       result = static_show_domain(
-        goto_model, *analyzer, options, get_message_handler(), out);
+        goto_model, *analyzer, options, out);
     }
     else if(options.get_bool_option("verify"))
     {
@@ -603,17 +604,17 @@ int janalyzer_parse_optionst::perform_analysis(const optionst &options)
     else if(options.get_bool_option("unreachable-instructions"))
     {
       result = static_unreachable_instructions(
-        goto_model, *analyzer, options, get_message_handler(), out);
+        goto_model, *analyzer, options, out);
     }
     else if(options.get_bool_option("unreachable-functions"))
     {
       result = static_unreachable_functions(
-        goto_model, *analyzer, options, get_message_handler(), out);
+        goto_model, *analyzer, options, out);
     }
     else if(options.get_bool_option("reachable-functions"))
     {
       result = static_reachable_functions(
-        goto_model, *analyzer, options, get_message_handler(), out);
+        goto_model, *analyzer, options, out);
     }
     else
     {
@@ -670,9 +671,9 @@ bool janalyzer_parse_optionst::process_goto_program(const optionst &options)
     remove_virtual_functions(goto_model);
     // remove Java throw and catch
     // This introduces instanceof, so order is important:
-    remove_exceptions(goto_model);
+    remove_exceptions(goto_model, get_message_handler());
     // remove rtti
-    remove_instanceof(goto_model);
+    remove_instanceof(goto_model, get_message_handler());
 
     // do partial inlining
     status() << "Partial Inlining" << eom;
@@ -723,24 +724,23 @@ bool janalyzer_parse_optionst::process_goto_program(const optionst &options)
 /// display command line help
 void janalyzer_parse_optionst::help()
 {
-  std::cout << "\n"
-               "* * JANALYZER " CBMC_VERSION " - Copyright (C) 2017-2018 ";
-
-  std::cout << "(" << (sizeof(void *) * 8) << "-bit version)";
-
-  std::cout << " * *\n";
-
   // clang-format off
-  std::cout <<
+  std::cout << '\n' << banner_string("JANALYZER", CBMC_VERSION) << '\n'
+            <<
      /* NOLINTNEXTLINE(whitespace/line_length) */
-    "* *         JANALYZER " CBMC_VERSION " - Copyright (C) 2016-2018          * *\n"
+    "* *                   Copyright (C) 2016-2018                    * *\n"
     "* *                  Daniel Kroening, Diffblue                   * *\n"
     "* *                   kroening@kroening.com                      * *\n"
     "\n"
     "Usage:                       Purpose:\n"
     "\n"
     " janalyzer [-?] [-h] [--help] show help\n"
-    " janalyzer class              name of class to be checked\n"
+    " janalyzer class              name of class or JAR file to be checked\n"
+    "                              In the case of a JAR file, if a main class can be\n" // NOLINT(*)
+    "                              inferred from --main-class, --function, or the JAR\n" // NOLINT(*)
+    "                              manifest (checked in this order), the behavior is\n" // NOLINT(*)
+    "                              the same as running janalyzer on the corresponding\n" // NOLINT(*)
+    "                              class file."
     "\n"
     "Task options:\n"
     " --show                       display the abstract domains\n"

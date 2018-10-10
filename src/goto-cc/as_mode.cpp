@@ -23,13 +23,12 @@ Author: Michael Tautschnig
 #include <iostream>
 #include <cstring>
 
+#include <util/config.h>
+#include <util/cout_message.h>
+#include <util/get_base_name.h>
 #include <util/run.h>
 #include <util/tempdir.h>
-#include <util/config.h>
-#include <util/get_base_name.h>
-#include <util/cout_message.h>
-
-#include <cbmc/version.h>
+#include <util/version.h>
 
 #include "compile.h"
 
@@ -83,17 +82,18 @@ int as_modet::doit()
      cmdline.isset("version"))
   {
     if(act_as_as86)
-      status() << "as86 version: 0.16.17 (goto-cc " CBMC_VERSION ")"
+      status() << "as86 version: 0.16.17 (goto-cc " << CBMC_VERSION << ")"
                << eom;
     else
       status() << "GNU assembler version 2.20.51.0.7 20100318"
-               << " (goto-cc " CBMC_VERSION ")" << eom;
+               << " (goto-cc " << CBMC_VERSION << ")" << eom;
 
-    status() << '\n' <<
-      "Copyright (C) 2006-2014 Daniel Kroening, Christoph Wintersteiger\n" <<
-      "CBMC version: " CBMC_VERSION << '\n' <<
-      "Architecture: " << config.this_architecture() << '\n' <<
-      "OS: " << config.this_operating_system() << eom;
+    status()
+      << '\n'
+      << "Copyright (C) 2006-2014 Daniel Kroening, Christoph Wintersteiger\n"
+      << "CBMC version: " << CBMC_VERSION << '\n'
+      << "Architecture: " << config.this_architecture() << '\n'
+      << "OS: " << config.this_operating_system() << eom;
 
     return EX_OK; // Exit!
   }
@@ -267,7 +267,7 @@ int as_modet::run_as()
   std::cout << '\n';
   #endif
 
-  return run(new_argv[0], new_argv, cmdline.stdin_file);
+  return run(new_argv[0], new_argv, cmdline.stdin_file, "", "");
 }
 
 int as_modet::as_hybrid_binary()
@@ -304,7 +304,7 @@ int as_modet::as_hybrid_binary()
   debug() << "merging " << output_file << eom;
   std::string saved=output_file+".goto-cc-saved";
 
-  #ifdef __linux__
+  #if defined(__linux__) || defined(__FreeBSD_kernel__)
   if(result==0)
   {
     // remove any existing goto-cc section
@@ -367,7 +367,7 @@ int as_modet::as_hybrid_binary()
 
   #else
   error() << "binary merging not implemented for this platform" << eom;
-  return 1;
+  result = 1;
   #endif
 
   return result;

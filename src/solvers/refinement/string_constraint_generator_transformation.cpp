@@ -29,16 +29,21 @@ Author: Romain Brenguier, romain.brenguier@diffblue.com
 ///   3. \f$ \forall i<|{\tt res}|.\ i \ge |s_1|
 ///          \Rightarrow {\tt res}[i] = 0 \f$
 /// \todo We can reduce the number of constraints by merging 2 and 3.
+/// \param fresh_symbol: generator of fresh symbols
 /// \param f: function application with arguments integer `|res|`, character
 ///           pointer `&res[0]`, refined_string `s1`, integer `k`
-/// \return integer expressino equal to `0`
-exprt string_constraint_generatort::add_axioms_for_set_length(
-  const function_application_exprt &f)
+/// \param array_pool: pool of arrays representing strings
+/// \return integer expression equal to `0`
+std::pair<exprt, string_constraintst> add_axioms_for_set_length(
+  symbol_generatort &fresh_symbol,
+  const function_application_exprt &f,
+  array_poolt &array_pool)
 {
   PRECONDITION(f.arguments().size() == 4);
+  string_constraintst constraints;
   const array_string_exprt res =
-    char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
-  const array_string_exprt s1 = get_string_expr(f.arguments()[2]);
+    char_array_of_pointer(array_pool, f.arguments()[1], f.arguments()[0]);
+  const array_string_exprt s1 = get_string_expr(array_pool, f.arguments()[2]);
   const exprt &k = f.arguments()[3];
   const typet &index_type = s1.length().type();
   const typet &char_type = s1.content().type().subtype();
@@ -48,53 +53,57 @@ exprt string_constraint_generatort::add_axioms_for_set_length(
   // a2 : forall i< min(|s1|, k) .res[i] = s1[i]
   // a3 : forall |s1| <= i < |res|. res[i] = 0
 
-  lemmas.push_back(res.axiom_for_has_length(k));
+  constraints.existential.push_back(res.axiom_for_has_length(k));
 
-  const symbol_exprt idx = fresh_univ_index("QA_index_set_length", index_type);
+  const symbol_exprt idx = fresh_symbol("QA_index_set_length", index_type);
   const string_constraintt a2(
-    idx, minimum(s1.length(), k), equal_exprt(s1[idx], res[idx]));
-  constraints.push_back(a2);
+    idx,
+    zero_if_negative(minimum(s1.length(), k)),
+    equal_exprt(s1[idx], res[idx]));
+  constraints.universal.push_back(a2);
 
-  symbol_exprt idx2 = fresh_univ_index("QA_index_set_length2", index_type);
+  symbol_exprt idx2 = fresh_symbol("QA_index_set_length2", index_type);
   string_constraintt a3(
     idx2,
-    s1.length(),
-    res.length(),
-    equal_exprt(res[idx2], constant_char(0, char_type)));
-  constraints.push_back(a3);
+    zero_if_negative(s1.length()),
+    zero_if_negative(res.length()),
+    equal_exprt(res[idx2], from_integer(0, char_type)));
+  constraints.universal.push_back(a3);
 
-  return from_integer(0, signedbv_typet(32));
+  return {from_integer(0, get_return_code_type()), std::move(constraints)};
 }
 
 /// Substring of a string between two indices
 ///
-/// \copybrief string_constraint_generatort::add_axioms_for_substring(
-///   const array_string_exprt &res,
-///   const array_string_exprt &str,
-///   const exprt &start,
-///   const exprt &end)
 // NOLINTNEXTLINE
-/// \link string_constraint_generatort::add_axioms_for_substring(const array_string_exprt &res, const array_string_exprt &str, const exprt &start, const exprt &end)
+/// \copybrief add_axioms_for_substring(symbol_generatort &fresh_symbol, const array_string_exprt &res, const array_string_exprt &str, const exprt &start, const exprt &end)
+// NOLINTNEXTLINE
+/// \link string_constraint_generatort::add_axioms_for_substring(symbol_generatort &fresh_symbol, const array_string_exprt &res, const array_string_exprt &str, const exprt &start, const exprt &end)
 ///   (More...) \endlink
 /// \warning The specification may not be correct for the case where the string
 /// is shorter than the end index
 /// \todo Should return a integer different from zero when the string is shorter
 ///   tan the end index.
+/// \param fresh_symbol: generator of fresh symbols
 /// \param f: function application with arguments integer `|res|`, character
 ///           pointer `&res[0]`, refined_string `str`, integer `start`,
 ///           optional integer `end` with default value `|str|`.
+/// \param array_pool: pool of arrays representing strings
 /// \return integer expression which is different from 0 when there is an
 ///         exception to signal
-exprt string_constraint_generatort::add_axioms_for_substring(
-  const function_application_exprt &f)
+std::pair<exprt, string_constraintst> add_axioms_for_substring(
+  symbol_generatort &fresh_symbol,
+  const function_application_exprt &f,
+  array_poolt &array_pool)
 {
   const function_application_exprt::argumentst &args=f.arguments();
   PRECONDITION(args.size() == 4 || args.size() == 5);
-  const array_string_exprt str = get_string_expr(args[2]);
-  const array_string_exprt res = char_array_of_pointer(args[1], args[0]);
+  const array_string_exprt str = get_string_expr(array_pool, args[2]);
+  const array_string_exprt res =
+    char_array_of_pointer(array_pool, args[1], args[0]);
   const exprt &i = args[3];
   const exprt j = args.size() == 5 ? args[4] : str.length();
-  return add_axioms_for_substring(res, str, i, j);
+  return add_axioms_for_substring(fresh_symbol, res, str, i, j);
 }
 
 /// Add axioms ensuring that `res` corresponds to the substring of `str`
@@ -106,12 +115,14 @@ exprt string_constraint_generatort::add_axioms_for_substring(
 ///   2. \f$ \forall i<|{\tt res}|.\ {\tt res}[i]={\tt str}[{\tt start'}+i] \f$
 /// \todo Should return code different from 0 if `start' != start` or
 ///       `end' != end`
+/// \param fresh_symbol: generator of fresh symbols
 /// \param res: array of characters expression
 /// \param str: array of characters expression
 /// \param start: integer expression
 /// \param end: integer expression
 /// \return integer expression equal to zero
-exprt string_constraint_generatort::add_axioms_for_substring(
+std::pair<exprt, string_constraintst> add_axioms_for_substring(
+  symbol_generatort &fresh_symbol,
   const array_string_exprt &res,
   const array_string_exprt &str,
   const exprt &start,
@@ -121,20 +132,24 @@ exprt string_constraint_generatort::add_axioms_for_substring(
   PRECONDITION(start.type()==index_type);
   PRECONDITION(end.type()==index_type);
 
+  string_constraintst constraints;
   const exprt start1 = maximum(start, from_integer(0, start.type()));
   const exprt end1 = maximum(minimum(end, str.length()), start1);
 
   // Axiom 1.
-  lemmas.push_back(equal_exprt(res.length(), minus_exprt(end1, start1)));
+  constraints.existential.push_back(
+    equal_exprt(res.length(), minus_exprt(end1, start1)));
 
   // Axiom 2.
-  constraints.push_back([&] {
-    const symbol_exprt idx = fresh_univ_index("QA_index_substring", index_type);
+  constraints.universal.push_back([&] {
+    const symbol_exprt idx = fresh_symbol("QA_index_substring", index_type);
     return string_constraintt(
-      idx, res.length(), equal_exprt(res[idx], str[plus_exprt(start1, idx)]));
+      idx,
+      zero_if_negative(res.length()),
+      equal_exprt(res[idx], str[plus_exprt(start1, idx)]));
   }());
 
-  return from_integer(0, signedbv_typet(32));
+  return {from_integer(0, get_return_code_type()), std::move(constraints)};
 }
 
 /// Remove leading and trailing whitespaces
@@ -159,59 +174,65 @@ exprt string_constraint_generatort::add_axioms_for_substring(
 ///   9. \f$ (s[m]>{\tt \lq~\rq} \land s[m+|{\tt res}|-1]>{\tt \lq~\rq})
 ///          \lor m=|{\tt res}| \f$
 /// \note Some of the constraints among 1, 2, 3, 4 and 5 seems to be redundant
+/// \param fresh_symbol: generator of fresh symbols
 /// \param f: function application with arguments integer `|res|`, character
 ///           pointer `&res[0]`, refined_string `str`.
+/// \param array_pool: pool of arrays representing strings
 /// \return integer expression which is different from 0 when there is an
 ///         exception to signal
-exprt string_constraint_generatort::add_axioms_for_trim(
-  const function_application_exprt &f)
+std::pair<exprt, string_constraintst> add_axioms_for_trim(
+  symbol_generatort &fresh_symbol,
+  const function_application_exprt &f,
+  array_poolt &array_pool)
 {
   PRECONDITION(f.arguments().size() == 3);
-  const array_string_exprt &str = get_string_expr(f.arguments()[2]);
+  string_constraintst constraints;
+  const array_string_exprt &str = get_string_expr(array_pool, f.arguments()[2]);
   const array_string_exprt &res =
-    char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
+    char_array_of_pointer(array_pool, f.arguments()[1], f.arguments()[0]);
   const typet &index_type = str.length().type();
   const typet &char_type = str.content().type().subtype();
-  const symbol_exprt idx = fresh_exist_index("index_trim", index_type);
+  const symbol_exprt idx = fresh_symbol("index_trim", index_type);
   const exprt space_char = from_integer(' ', char_type);
 
   // Axiom 1.
-  lemmas.push_back(str.axiom_for_length_ge(plus_exprt(idx, res.length())));
+  constraints.existential.push_back(
+    str.axiom_for_length_ge(plus_exprt(idx, res.length())));
 
   binary_relation_exprt a2(idx, ID_ge, from_integer(0, index_type));
-  lemmas.push_back(a2);
+  constraints.existential.push_back(a2);
 
   exprt a3=str.axiom_for_length_ge(idx);
-  lemmas.push_back(a3);
+  constraints.existential.push_back(a3);
 
   exprt a4=res.axiom_for_length_ge(
     from_integer(0, index_type));
-  lemmas.push_back(a4);
+  constraints.existential.push_back(a4);
 
   exprt a5 = res.axiom_for_length_le(str.length());
-  lemmas.push_back(a5);
+  constraints.existential.push_back(a5);
 
-  symbol_exprt n=fresh_univ_index("QA_index_trim", index_type);
+  symbol_exprt n = fresh_symbol("QA_index_trim", index_type);
   binary_relation_exprt non_print(str[n], ID_le, space_char);
-  string_constraintt a6(n, idx, non_print);
-  constraints.push_back(a6);
+  string_constraintt a6(n, zero_if_negative(idx), non_print);
+  constraints.universal.push_back(a6);
 
   // Axiom 7.
-  constraints.push_back([&] {
-    const symbol_exprt n2 = fresh_univ_index("QA_index_trim2", index_type);
+  constraints.universal.push_back([&] {
+    const symbol_exprt n2 = fresh_symbol("QA_index_trim2", index_type);
     const minus_exprt bound(minus_exprt(str.length(), idx), res.length());
     const binary_relation_exprt eqn2(
       str[plus_exprt(idx, plus_exprt(res.length(), n2))], ID_le, space_char);
-    return string_constraintt(n2, bound, eqn2);
+    return string_constraintt(n2, zero_if_negative(bound), eqn2);
   }());
 
-  symbol_exprt n3=fresh_univ_index("QA_index_trim3", index_type);
+  symbol_exprt n3 = fresh_symbol("QA_index_trim3", index_type);
   equal_exprt eqn3(res[n3], str[plus_exprt(n3, idx)]);
-  string_constraintt a8(n3, res.length(), eqn3);
-  constraints.push_back(a8);
+  string_constraintt a8(n3, zero_if_negative(res.length()), eqn3);
+  constraints.universal.push_back(a8);
 
   // Axiom 9.
-  lemmas.push_back([&] {
+  constraints.existential.push_back([&] {
     const plus_exprt index_before(
       idx, minus_exprt(res.length(), from_integer(1, index_type)));
     const binary_relation_exprt no_space_before(
@@ -221,202 +242,7 @@ exprt string_constraint_generatort::add_axioms_for_trim(
       and_exprt(
         binary_relation_exprt(str[idx], ID_gt, space_char), no_space_before));
   }());
-  return from_integer(0, f.type());
-}
-
-/// Conversion of a string to lower case
-///
-/// Add axioms ensuring `res` corresponds to `str` in which uppercase characters
-/// have been converted to lowercase.
-/// These axioms are:
-///   1. \f$ |{\tt res}| = |{\tt str}| \f$
-///   2. \f$ \forall i<|{\tt str}|.\ {\tt is\_upper\_case}({\tt str}[i])?
-///      {\tt res}[i]={\tt str}[i]+diff : {\tt res}[i]={\tt str}[i]
-///      \land {\tt str}[i]<{\tt 0x100} \f$
-///      where `diff` is the difference between lower case and upper case
-///      characters: `diff = 'a'-'A' = 0x20`.
-///
-/// \param f: function application with arguments integer `|res|`, character
-///           pointer `&res[0]`, refined_string `str`
-/// \return integer expression which is different from `0` when there is an
-///         exception to signal
-exprt string_constraint_generatort::add_axioms_for_to_lower_case(
-  const function_application_exprt &f)
-{
-  PRECONDITION(f.arguments().size() == 3);
-  const array_string_exprt res =
-    char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
-  const array_string_exprt str = get_string_expr(f.arguments()[2]);
-  const refined_string_typet &ref_type =
-    to_refined_string_type(f.arguments()[2].type());
-  const typet &char_type=ref_type.get_char_type();
-  const typet &index_type=ref_type.get_index_type();
-  const exprt char_A=constant_char('A', char_type);
-  const exprt char_Z=constant_char('Z', char_type);
-
-  // \todo for now, only characters in Basic Latin and Latin-1 supplement
-  // are supported (up to 0x100), we should add others using case mapping
-  // information from the UnicodeData file.
-
-  equal_exprt a1(res.length(), str.length());
-  lemmas.push_back(a1);
-
-  symbol_exprt idx=fresh_univ_index("QA_lower_case", index_type);
-  exprt::operandst upper_case;
-  // Characters between 'A' and 'Z' are upper-case
-  upper_case.push_back(and_exprt(
-    binary_relation_exprt(char_A, ID_le, str[idx]),
-    binary_relation_exprt(str[idx], ID_le, char_Z)));
-
-  // Characters between 0xc0 (latin capital A with grave)
-  // and 0xd6 (latin capital O with diaeresis) are upper-case
-  upper_case.push_back(and_exprt(
-    binary_relation_exprt(from_integer(0xc0, char_type), ID_le, str[idx]),
-    binary_relation_exprt(str[idx], ID_le, from_integer(0xd6, char_type))));
-
-  // Characters between 0xd8 (latin capital O with stroke)
-  // and 0xde (latin capital thorn) are upper-case
-  upper_case.push_back(and_exprt(
-    binary_relation_exprt(from_integer(0xd8, char_type), ID_le, str[idx]),
-    binary_relation_exprt(str[idx], ID_le, from_integer(0xde, char_type))));
-
-  exprt is_upper_case=disjunction(upper_case);
-
-  // The difference between upper-case and lower-case for the basic latin and
-  // latin-1 supplement is 0x20.
-  exprt diff=from_integer(0x20, char_type);
-  equal_exprt converted(res[idx], plus_exprt(str[idx], diff));
-  and_exprt non_converted(
-    equal_exprt(res[idx], str[idx]),
-    binary_relation_exprt(str[idx], ID_lt, from_integer(0x100, char_type)));
-  if_exprt conditional_convert(is_upper_case, converted, non_converted);
-
-  string_constraintt a2(idx, res.length(), conditional_convert);
-  constraints.push_back(a2);
-
-  return from_integer(0, f.type());
-}
-
-/// Add axioms ensuring `res` corresponds to `str` in which lowercase characters
-/// have been converted to uppercase.
-///
-/// These axioms are:
-///   1. \f$ |{\tt res}| = |{\tt str}| \f$
-///   2. \f$ \forall i<|{\tt str}|.\ 'a'\le {\tt str}[i]\le 'z'
-///          \Rightarrow {\tt res}[i]={\tt str}[i]+'A'-'a' \f$
-///   3. \f$ \forall i<|{\tt str}|.\ \lnot ('a'\le {\tt str}[i] \le 'z')
-///          \Rightarrow {\tt res}[i]={\tt str}[i] \f$
-/// Note that index expressions are only allowed in the body of universal
-/// axioms, so we use a trivial premise and push our premise into the body.
-///
-/// \todo We can reduce the number of constraints by merging
-///       constraints 2 and 3.
-/// \param res: array of characters expression
-/// \param str: array of characters expression
-/// \return integer expression which is different from `0` when there is an
-///         exception to signal
-exprt string_constraint_generatort::add_axioms_for_to_upper_case(
-  const array_string_exprt &res,
-  const array_string_exprt &str)
-{
-  const typet &char_type = str.content().type().subtype();
-  const typet &index_type = str.length().type();
-  exprt char_a=constant_char('a', char_type);
-  exprt char_A=constant_char('A', char_type);
-  exprt char_z=constant_char('z', char_type);
-
-  // \todo Add support for locales using case mapping information
-  // from the UnicodeData file.
-
-  equal_exprt a1(res.length(), str.length());
-  lemmas.push_back(a1);
-
-  symbol_exprt idx1=fresh_univ_index("QA_upper_case1", index_type);
-  const and_exprt is_lower_case(
-    binary_relation_exprt(char_a, ID_le, str[idx1]),
-    binary_relation_exprt(str[idx1], ID_le, char_z));
-  minus_exprt diff(char_A, char_a);
-  equal_exprt convert(res[idx1], plus_exprt(str[idx1], diff));
-  implies_exprt body1(is_lower_case, convert);
-  string_constraintt a2(idx1, res.length(), body1);
-  constraints.push_back(a2);
-
-  symbol_exprt idx2=fresh_univ_index("QA_upper_case2", index_type);
-  const not_exprt is_not_lower_case(
-    and_exprt(
-      binary_relation_exprt(char_a, ID_le, str[idx2]),
-      binary_relation_exprt(str[idx2], ID_le, char_z)));
-  equal_exprt eq(res[idx2], str[idx2]);
-  implies_exprt body2(is_not_lower_case, eq);
-  string_constraintt a3(idx2, res.length(), body2);
-  constraints.push_back(a3);
-  return from_integer(0, signedbv_typet(32));
-}
-
-/// Conversion of a string to upper case
-///
-// NOLINTNEXTLINE
-/// \copybrief string_constraint_generatort::add_axioms_for_to_upper_case(const array_string_exprt&, const array_string_exprt&)
-// NOLINTNEXTLINE
-/// \link string_constraint_generatort::add_axioms_for_to_upper_case(const array_string_exprt &res, const array_string_exprt &str)
-///   (More...) \endlink
-/// \param f: function application with arguments integer `|res|`, character
-///           pointer `&res[0]`, refined_string `str`
-/// \return integer expression which is different from `0` when there is an
-///         exception to signal
-exprt string_constraint_generatort::add_axioms_for_to_upper_case(
-  const function_application_exprt &f)
-{
-  PRECONDITION(f.arguments().size() == 3);
-  array_string_exprt res =
-    char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
-  array_string_exprt str = get_string_expr(f.arguments()[2]);
-  return add_axioms_for_to_upper_case(res, str);
-}
-
-/// Set a character to a specific value at an index of the string
-///
-/// Add axioms ensuring that the result `res` is similar to input string `str`
-/// where the character at index `pos` is set to `char`.
-/// These axioms are:
-///   1. \f$ |{\tt res}| = |{\tt str}|\f$
-///   2. \f$ {\tt res}[{\tt pos}]={\tt char}\f$
-///   3. \f$ \forall i < min(|{\tt res}|, pos). {\tt res}[i] = {\tt str}[i]\f$
-///   4. \f$ \forall pos+1 <= i < |{\tt res}|.\ {\tt res}[i] = {\tt str}[i]\f$
-/// \param f: function application with arguments integer `|res|`, character
-///           pointer `&res[0]`, refined_string `str`, integer `pos`,
-///           and character `char`
-/// \return an integer expression which is `1` when `pos` is out of bounds and
-///         `0` otherwise
-exprt string_constraint_generatort::add_axioms_for_char_set(
-  const function_application_exprt &f)
-{
-  PRECONDITION(f.arguments().size() == 5);
-  const array_string_exprt str = get_string_expr(f.arguments()[2]);
-  const array_string_exprt res =
-    char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
-  const exprt &position = f.arguments()[3];
-  const exprt &character = f.arguments()[4];
-
-  const binary_relation_exprt out_of_bounds(position, ID_ge, str.length());
-  const equal_exprt a1(res.length(), str.length());
-  lemmas.push_back(a1);
-  const equal_exprt a2(res[position], character);
-  lemmas.push_back(a2);
-
-  const symbol_exprt q = fresh_univ_index("QA_char_set", position.type());
-  const equal_exprt a3_body(res[q], str[q]);
-  const string_constraintt a3(q, minimum(res.length(), position), a3_body);
-  constraints.push_back(a3);
-
-  const symbol_exprt q2 = fresh_univ_index("QA_char_set2", position.type());
-  const plus_exprt lower_bound(position, from_integer(1, position.type()));
-  const equal_exprt a4_body(res[q2], str[q2]);
-  const string_constraintt a4(q2, lower_bound, res.length(), a4_body);
-  constraints.push_back(a4);
-
-  return if_exprt(
-    out_of_bounds, from_integer(1, f.type()), from_integer(0, f.type()));
+  return {from_integer(0, f.type()), constraints};
 }
 
 /// Convert two expressions to pair of chars
@@ -460,56 +286,71 @@ static optionalt<std::pair<exprt, exprt>> to_char_pair(
 /// String.replace(String, String) for single-character strings
 /// Returns original string in every other case (that behaviour is to
 /// be fixed in the future)
+/// \param fresh_symbol: generator of fresh symbols
 /// \param f: function application with arguments integer `|res|`, character
 ///           pointer `&res[0]`, refined_string `str`, character `old_char` and
 ///           character `new_char`
+/// \param array_pool: pool of arrays representing strings
 /// \return an integer expression equal to 0
-exprt string_constraint_generatort::add_axioms_for_replace(
-  const function_application_exprt &f)
+std::pair<exprt, string_constraintst> add_axioms_for_replace(
+  symbol_generatort &fresh_symbol,
+  const function_application_exprt &f,
+  array_poolt &array_pool)
 {
   PRECONDITION(f.arguments().size() == 5);
-  array_string_exprt str = get_string_expr(f.arguments()[2]);
+  string_constraintst constraints;
+  array_string_exprt str = get_string_expr(array_pool, f.arguments()[2]);
   array_string_exprt res =
-    char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
+    char_array_of_pointer(array_pool, f.arguments()[1], f.arguments()[0]);
   if(
     const auto maybe_chars =
-      to_char_pair(f.arguments()[3], f.arguments()[4], [this](const exprt &e) {
-        return get_string_expr(e);
+      to_char_pair(f.arguments()[3], f.arguments()[4], [&](const exprt &e) {
+        return get_string_expr(array_pool, e);
       }))
   {
     const auto old_char=maybe_chars->first;
     const auto new_char=maybe_chars->second;
 
-    lemmas.push_back(equal_exprt(res.length(), str.length()));
+    constraints.existential.push_back(equal_exprt(res.length(), str.length()));
 
-    symbol_exprt qvar = fresh_univ_index("QA_replace", str.length().type());
+    symbol_exprt qvar = fresh_symbol("QA_replace", str.length().type());
     implies_exprt case1(
       equal_exprt(str[qvar], old_char),
       equal_exprt(res[qvar], new_char));
     implies_exprt case2(
       not_exprt(equal_exprt(str[qvar], old_char)),
       equal_exprt(res[qvar], str[qvar]));
-    string_constraintt a2(qvar, res.length(), and_exprt(case1, case2));
-    constraints.push_back(a2);
-    return from_integer(0, f.type());
+    string_constraintt a2(
+      qvar, zero_if_negative(res.length()), and_exprt(case1, case2));
+    constraints.universal.push_back(a2);
+    return {from_integer(0, f.type()), std::move(constraints)};
   }
-  return from_integer(1, f.type());
+  return {from_integer(1, f.type()), std::move(constraints)};
 }
 
 /// add axioms corresponding to the StringBuilder.deleteCharAt java function
+/// \param fresh_symbol: generator of fresh symbols
 /// \param f: function application with two arguments, the first is a
 ///   string and the second is an index
+/// \param array_pool: pool of arrays representing strings
 /// \return an expression whose value is non null to signal an exception
-exprt string_constraint_generatort::add_axioms_for_delete_char_at(
-  const function_application_exprt &f)
+std::pair<exprt, string_constraintst> add_axioms_for_delete_char_at(
+  symbol_generatort &fresh_symbol,
+  const function_application_exprt &f,
+  array_poolt &array_pool)
 {
   PRECONDITION(f.arguments().size() == 4);
   const array_string_exprt res =
-    char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
-  const array_string_exprt str = get_string_expr(f.arguments()[2]);
+    char_array_of_pointer(array_pool, f.arguments()[1], f.arguments()[0]);
+  const array_string_exprt str = get_string_expr(array_pool, f.arguments()[2]);
   exprt index_one=from_integer(1, str.length().type());
   return add_axioms_for_delete(
-    res, str, f.arguments()[3], plus_exprt(f.arguments()[3], index_one));
+    fresh_symbol,
+    res,
+    str,
+    f.arguments()[3],
+    plus_exprt(f.arguments()[3], index_one),
+    array_pool);
 }
 
 /// Add axioms stating that `res` corresponds to the input `str`
@@ -521,49 +362,60 @@ exprt string_constraint_generatort::add_axioms_for_delete_char_at(
 /// (see \ref add_axioms_for_substring and \ref add_axioms_for_concat_substr).
 /// \todo Should use add_axioms_for_concat_substr instead
 ///       of add_axioms_for_concat
+/// \param fresh_symbol: generator of fresh symbols
 /// \param res: array of characters expression
 /// \param str: array of characters expression
 /// \param start: integer expression
 /// \param end: integer expression
+/// \param array_pool: pool of arrays representing strings
 /// \return integer expression different from zero to signal an exception
-exprt string_constraint_generatort::add_axioms_for_delete(
+std::pair<exprt, string_constraintst> add_axioms_for_delete(
+  symbol_generatort &fresh_symbol,
   const array_string_exprt &res,
   const array_string_exprt &str,
   const exprt &start,
-  const exprt &end)
+  const exprt &end,
+  array_poolt &array_pool)
 {
   PRECONDITION(start.type()==str.length().type());
   PRECONDITION(end.type()==str.length().type());
   const typet &index_type = str.length().type();
   const typet &char_type = str.content().type().subtype();
-  const array_string_exprt sub1 = fresh_string(index_type, char_type);
-  const array_string_exprt sub2 = fresh_string(index_type, char_type);
-  const exprt return_code1 = add_axioms_for_substring(
-    sub1, str, from_integer(0, str.length().type()), start);
-  const exprt return_code2 =
-    add_axioms_for_substring(sub2, str, end, str.length());
-  const exprt return_code3 = add_axioms_for_concat(res, sub1, sub2);
-  return bitor_exprt(return_code1, bitor_exprt(return_code2, return_code3));
+  const array_string_exprt sub1 =
+    array_pool.fresh_string(index_type, char_type);
+  const array_string_exprt sub2 =
+    array_pool.fresh_string(index_type, char_type);
+  return combine_results(
+    add_axioms_for_substring(
+      fresh_symbol, sub1, str, from_integer(0, str.length().type()), start),
+    combine_results(
+      add_axioms_for_substring(fresh_symbol, sub2, str, end, str.length()),
+      add_axioms_for_concat(fresh_symbol, res, sub1, sub2)));
 }
 
 /// Remove a portion of a string
 ///
 // NOLINTNEXTLINE
-/// \copybrief string_constraint_generatort::add_axioms_for_delete(const array_string_exprt &res, const array_string_exprt &str, const exprt &start, const exprt &end)
+/// \copybrief add_axioms_for_delete(symbol_generatort &fresh_symbol, const array_string_exprt &res, const array_string_exprt &str, const exprt &start, const exprt &end, array_poolt &array_pool)
 // NOLINTNEXTLINE
-/// \link string_constraint_generatort::add_axioms_for_delete(const array_string_exprt &res, const array_string_exprt &str, const exprt &start, const exprt &end)
+/// \link add_axioms_for_delete(symbol_generatort &fresh_symbol,const array_string_exprt &res, const array_string_exprt &str, const exprt &start, const exprt &end, array_poolt &array_pool)
 ///   (More...) \endlink
+/// \param fresh_symbol: generator of fresh symbols
 /// \param f: function application with arguments integer `|res|`, character
 ///           pointer `&res[0]`, refined_string `str`, integer `start`
 ///           and integer `end`
+/// \param array_pool: pool of arrays representing strings
 /// \return an integer expression whose value is different from 0 to signal
 ///   an exception
-exprt string_constraint_generatort::add_axioms_for_delete(
-  const function_application_exprt &f)
+std::pair<exprt, string_constraintst> add_axioms_for_delete(
+  symbol_generatort &fresh_symbol,
+  const function_application_exprt &f,
+  array_poolt &array_pool)
 {
   PRECONDITION(f.arguments().size() == 5);
   const array_string_exprt res =
-    char_array_of_pointer(f.arguments()[1], f.arguments()[0]);
-  const array_string_exprt arg = get_string_expr(f.arguments()[2]);
-  return add_axioms_for_delete(res, arg, f.arguments()[3], f.arguments()[4]);
+    char_array_of_pointer(array_pool, f.arguments()[1], f.arguments()[0]);
+  const array_string_exprt arg = get_string_expr(array_pool, f.arguments()[2]);
+  return add_axioms_for_delete(
+    fresh_symbol, res, arg, f.arguments()[3], f.arguments()[4], array_pool);
 }

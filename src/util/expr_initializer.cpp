@@ -56,6 +56,10 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
 {
   const irep_idt &type_id=type.id();
 
+  PRECONDITION_WITH_DIAGNOSTICS(
+    type_id != ID_code,
+    source_location.as_string() + ": cannot initialize code type");
+
   if(type_id==ID_unsignedbv ||
      type_id==ID_signedbv ||
      type_id==ID_pointer ||
@@ -69,7 +73,7 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
   {
     exprt result;
     if(nondet)
-      result = side_effect_expr_nondett(type);
+      result = side_effect_expr_nondett(type, source_location);
     else
       result = from_integer(0, type);
 
@@ -81,7 +85,7 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
   {
     exprt result;
     if(nondet)
-      result = side_effect_expr_nondett(type);
+      result = side_effect_expr_nondett(type, source_location);
     else
       result = constant_exprt(ID_0, type);
 
@@ -93,7 +97,7 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
   {
     exprt result;
     if(nondet)
-      result = side_effect_expr_nondett(type);
+      result = side_effect_expr_nondett(type, source_location);
     else
     {
       const std::size_t width = to_bitvector_type(type).get_width();
@@ -109,21 +113,16 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
   {
     exprt result;
     if(nondet)
-      result = side_effect_expr_nondett(type);
+      result = side_effect_expr_nondett(type, source_location);
     else
     {
-      exprt sub_zero = expr_initializer_rec(type.subtype(), source_location);
+      exprt sub_zero =
+        expr_initializer_rec(to_complex_type(type).subtype(), source_location);
       result = complex_exprt(sub_zero, sub_zero, to_complex_type(type));
     }
 
     result.add_source_location()=source_location;
     return result;
-  }
-  else if(type_id==ID_code)
-  {
-    error().source_location=source_location;
-    error() << "cannot initialize code-type" << eom;
-    throw 0;
   }
   else if(type_id==ID_array)
   {
@@ -149,11 +148,7 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
       if(array_type.size().id()==ID_infinity)
       {
         if(nondet)
-        {
-          side_effect_expr_nondett result(type);
-          result.add_source_location() = source_location;
-          return result;
-        }
+          return side_effect_expr_nondett(type, source_location);
 
         array_of_exprt value(tmpval, array_type);
         value.add_source_location()=source_location;
@@ -162,16 +157,17 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
       else if(to_integer(array_type.size(), array_size))
       {
         if(nondet)
-        {
-          side_effect_expr_nondett result(type);
-          result.add_source_location() = source_location;
-          return result;
-        }
+          return side_effect_expr_nondett(type, source_location);
 
-        error().source_location=source_location;
-        error() << "failed to zero-initialize array of non-fixed size `"
-                << format(array_type.size()) << "'" << eom;
-        throw 0;
+        std::ostringstream oss;
+        oss << format(array_type.size());
+
+        INVARIANT_WITH_DIAGNOSTICS(
+          false,
+          "non-infinite array size expression must be convertible to an "
+          "integer",
+          source_location.as_string() +
+            ": failed to zero-initialize array of size `" + oss.str() + "'");
       }
 
       DATA_INVARIANT(
@@ -194,16 +190,16 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
     if(to_integer(vector_type.size(), vector_size))
     {
       if(nondet)
-      {
-        side_effect_expr_nondett result(type);
-        result.add_source_location() = source_location;
-        return result;
-      }
+        return side_effect_expr_nondett(type, source_location);
 
-      error().source_location=source_location;
-      error() << "failed to zero-initialize vector of non-fixed size `"
-              << format(vector_type.size()) << "'" << eom;
-      throw 0;
+      std::ostringstream oss;
+      oss << format(vector_type.size());
+
+      INVARIANT_WITH_DIAGNOSTICS(
+        false,
+        "vector size must be convertible to an integer",
+        source_location.as_string() +
+          ": failed to zero-initialize vector of size `" + oss.str() + "'");
     }
 
     DATA_INVARIANT(
@@ -224,20 +220,16 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
 
     value.operands().reserve(components.size());
 
-    for(struct_typet::componentst::const_iterator
-        it=components.begin();
-        it!=components.end();
-        it++)
+    for(const auto &c : components)
     {
-      if(it->type().id()==ID_code)
+      if(c.type().id() == ID_code)
       {
-        constant_exprt code_value(ID_nil, it->type());
+        constant_exprt code_value(ID_nil, c.type());
         code_value.add_source_location()=source_location;
         value.copy_to_operands(code_value);
       }
       else
-        value.copy_to_operands(
-          expr_initializer_rec(it->type(), source_location));
+        value.copy_to_operands(expr_initializer_rec(c.type(), source_location));
     }
 
     value.add_source_location()=source_location;
@@ -257,22 +249,19 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
 
     // we need to find the largest member
 
-    for(struct_typet::componentst::const_iterator
-        it=components.begin();
-        it!=components.end();
-        it++)
+    for(const auto &c : components)
     {
       // skip methods
-      if(it->type().id()==ID_code)
+      if(c.type().id() == ID_code)
         continue;
 
-      mp_integer bits=pointer_offset_bits(it->type(), ns);
+      auto bits = pointer_offset_bits(c.type(), ns);
 
-      if(bits>component_size)
+      if(bits.has_value() && *bits > component_size)
       {
-        component=*it;
+        component = c;
         found=true;
-        component_size=bits;
+        component_size = *bits;
       }
     }
 
@@ -292,7 +281,7 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
 
     return value;
   }
-  else if(type_id==ID_symbol)
+  else if(type_id == ID_symbol_type)
   {
     exprt result = expr_initializer_rec(ns.follow(type), source_location);
     // we might have mangled the type for arrays, so keep that
@@ -310,23 +299,29 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
   }
   else if(type_id==ID_struct_tag)
   {
-    return
-      expr_initializer_rec(
-        ns.follow_tag(to_struct_tag_type(type)),
-        source_location);
+    exprt result = expr_initializer_rec(
+      ns.follow_tag(to_struct_tag_type(type)), source_location);
+
+    // use the tag type
+    result.type() = type;
+
+    return result;
   }
   else if(type_id==ID_union_tag)
   {
-    return
-      expr_initializer_rec(
-        ns.follow_tag(to_union_tag_type(type)),
-        source_location);
+    exprt result = expr_initializer_rec(
+      ns.follow_tag(to_union_tag_type(type)), source_location);
+
+    // use the tag type
+    result.type() = type;
+
+    return result;
   }
   else if(type_id==ID_string)
   {
     exprt result;
     if(nondet)
-      result = side_effect_expr_nondett(type);
+      result = side_effect_expr_nondett(type, source_location);
     else
       result = constant_exprt(irep_idt(), type);
 
@@ -335,9 +330,12 @@ exprt expr_initializert<nondet>::expr_initializer_rec(
   }
   else
   {
-    error().source_location=source_location;
-    error() << "failed to initialize `" << format(type) << "'" << eom;
-    throw 0;
+    std::ostringstream oss;
+    oss << format(type);
+
+    PRECONDITION_WITH_DIAGNOSTICS(
+      false,
+      source_location.as_string() + ": cannot initialize " + oss.str() + "'");
   }
 }
 
@@ -366,18 +364,9 @@ exprt zero_initializer(
   const source_locationt &source_location,
   const namespacet &ns)
 {
-  std::ostringstream oss;
-  stream_message_handlert mh(oss);
-
-  try
-  {
-    expr_initializert<false> z_i(ns, mh);
-    return z_i(type, source_location);
-  }
-  catch(int)
-  {
-    throw oss.str();
-  }
+  null_message_handlert null_message_handler;
+  expr_initializert<false> z_i(ns, null_message_handler);
+  return z_i(type, source_location);
 }
 
 exprt nondet_initializer(
@@ -385,16 +374,7 @@ exprt nondet_initializer(
   const source_locationt &source_location,
   const namespacet &ns)
 {
-  std::ostringstream oss;
-  stream_message_handlert mh(oss);
-
-  try
-  {
-    expr_initializert<true> z_i(ns, mh);
-    return z_i(type, source_location);
-  }
-  catch(int)
-  {
-    throw oss.str();
-  }
+  null_message_handlert null_message_handler;
+  expr_initializert<true> z_i(ns, null_message_handler);
+  return z_i(type, source_location);
 }

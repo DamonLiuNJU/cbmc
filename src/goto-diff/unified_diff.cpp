@@ -145,7 +145,6 @@ void unified_difft::output_diff(
 }
 
 unified_difft::differencest unified_difft::lcss(
-  const irep_idt &identifier,
   const goto_programt &old_goto_program,
   const goto_programt &new_goto_program)
 {
@@ -323,7 +322,7 @@ void unified_difft::unified_diff(
         new_goto_program.instructions.size(), differencet::NEW);
   }
   else
-    differences=lcss(identifier, old_goto_program, new_goto_program);
+    differences=lcss(old_goto_program, new_goto_program);
 }
 
 bool unified_difft::operator()()
@@ -393,9 +392,7 @@ bool unified_difft::instructions_equal(
   const goto_programt::instructiont &ins1,
   const goto_programt::instructiont &ins2)
 {
-  return ins1.code == ins2.code && ins1.function == ins2.function &&
-         ins1.type == ins2.type && ins1.guard == ins2.guard &&
-         ins1.targets.size() == ins2.targets.size() &&
+  return ins1.equals(ins2) && ins1.function == ins2.function &&
          (ins1.targets.empty() ||
           instructions_equal(*ins1.get_target(), *ins2.get_target()));
 }

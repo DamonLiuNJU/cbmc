@@ -56,18 +56,12 @@ mp_integer alignment(const typet &type, const namespacet &ns)
     result=alignment(type.subtype(), ns);
   else if(type.id()==ID_struct || type.id()==ID_union)
   {
-    const struct_union_typet::componentst &components=
-      to_struct_union_type(type).components();
-
     result=1;
 
     // get the max
     // (should really be the smallest common denominator)
-    for(struct_union_typet::componentst::const_iterator
-        it=components.begin();
-        it!=components.end();
-        it++)
-      result=std::max(result, alignment(it->type(), ns));
+    for(const auto &c : to_struct_union_type(type).components())
+      result = std::max(result, alignment(c.type(), ns));
   }
   else if(type.id()==ID_unsignedbv ||
           type.id()==ID_signedbv ||
@@ -76,14 +70,16 @@ mp_integer alignment(const typet &type, const namespacet &ns)
           type.id()==ID_c_bool ||
           type.id()==ID_pointer)
   {
-    result=pointer_offset_size(type, ns);
+    result = *pointer_offset_size(type, ns);
   }
   else if(type.id()==ID_c_enum)
     result=alignment(type.subtype(), ns);
   else if(type.id()==ID_c_enum_tag)
     result=alignment(ns.follow_tag(to_c_enum_tag_type(type)), ns);
-  else if(type.id()==ID_symbol)
-    result=alignment(ns.follow(type), ns);
+  else if(type.id() == ID_struct_tag)
+    result = alignment(ns.follow_tag(to_struct_tag_type(type)), ns);
+  else if(type.id() == ID_union_tag)
+    result = alignment(ns.follow_tag(to_union_tag_type(type)), ns);
   else if(type.id()==ID_c_bit_field)
   {
     // we align these according to the 'underlying type'
@@ -124,7 +120,7 @@ underlying_width(const c_bit_field_typet &type, const namespacet &ns)
     const typet &c_enum_type = ns.follow_tag(to_c_enum_tag_type(subtype));
 
     if(c_enum_type.id() == ID_c_enum)
-      return c_enum_type.subtype().get_int(ID_width);
+      return c_enum_type.subtype().get_size_t(ID_width);
     else
       return {};
   }
@@ -233,9 +229,9 @@ static void add_padding_msvc(struct_typet &type, const namespacet &ns)
       else
       {
         // keep track of offset
-        const mp_integer size = pointer_offset_size(it->type(), ns);
-        if(size >= 1)
-          offset += size;
+        const auto size = pointer_offset_size(it->type(), ns);
+        if(size.has_value() && *size >= 1)
+          offset += *size;
       }
     }
   }
@@ -379,10 +375,10 @@ static void add_padding_gcc(struct_typet &type, const namespacet &ns)
       }
     }
 
-    mp_integer size=pointer_offset_size(it_type, ns);
+    auto size = pointer_offset_size(it_type, ns);
 
-    if(size!=-1)
-      offset+=size;
+    if(size.has_value())
+      offset += *size;
   }
 
   // any explicit alignment for the struct?
@@ -439,9 +435,9 @@ void add_padding(union_typet &type, const namespacet &ns)
   // check per component, and ignore those without fixed size
   for(const auto &c : type.components())
   {
-    mp_integer s=pointer_offset_bits(c.type(), ns);
-    if(s>0)
-      size_bits=std::max(size_bits, s);
+    auto s = pointer_offset_bits(c.type(), ns);
+    if(s.has_value())
+      size_bits = std::max(size_bits, *s);
   }
 
   // Is the union packed?

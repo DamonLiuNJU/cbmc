@@ -21,6 +21,8 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <iosfwd>
 #include <vector>
 
+#include "invariant.h"
+
 class namespacet;
 class typet;
 
@@ -41,11 +43,13 @@ public:
   {
   }
 
+  virtual ~endianness_mapt() = default;
+
   size_t map_bit(size_t bit) const
   {
-    assert(bit<map.size());
+    PRECONDITION(bit < map.size());
     size_t result=map[bit];
-    assert(result<map.size());
+    DATA_INVARIANT(result < map.size(), "bit index must be within bounds");
     return result;
   }
 

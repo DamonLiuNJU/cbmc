@@ -18,6 +18,8 @@ Author: Daniel Kroening, kroening@kroening.com
 #endif
 
 #include "cmdline.h"
+#include "exception_utils.h"
+#include "exit_codes.h"
 #include "signal_catcher.h"
 
 parse_options_baset::parse_options_baset(
@@ -47,21 +49,53 @@ void parse_options_baset::unknown_option_msg()
 
 int parse_options_baset::main()
 {
-  if(parse_result)
+  // catch all exceptions here so that this code is not duplicated
+  // for each tool
+  try
   {
-    usage_error();
-    unknown_option_msg();
-    return EX_USAGE;
+    if(parse_result)
+    {
+      usage_error();
+      unknown_option_msg();
+      return EX_USAGE;
+    }
+
+    if(cmdline.isset('?') || cmdline.isset('h') || cmdline.isset("help"))
+    {
+      help();
+      return EX_OK;
+    }
+
+    // install signal catcher
+    install_signal_catcher();
+
+    return doit();
+  }
+  catch(const invalid_command_line_argument_exceptiont &e)
+  {
+    std::cerr << e.what() << "\n";
+    return CPROVER_EXIT_USAGE_ERROR;
+  }
+  catch(const cprover_exception_baset &e)
+  {
+    std::cerr << e.what() << '\n';
+    return CPROVER_EXIT_EXCEPTION;
+  }
+}
+
+std::string
+banner_string(const std::string &front_end, const std::string &version)
+{
+  const std::string version_str = front_end + " " + version + " " +
+                                  std::to_string(sizeof(void *) * 8) + "-bit";
+
+  std::string::size_type left_padding = 0, right_padding = 0;
+  if(version_str.size() < 57)
+  {
+    left_padding = (57 - version_str.size() + 1) / 2;
+    right_padding = (57 - version_str.size()) / 2;
   }
 
-  if(cmdline.isset('?') || cmdline.isset('h') || cmdline.isset("help"))
-  {
-    help();
-    return EX_OK;
-  }
-
-  // install signal catcher
-  install_signal_catcher();
-
-  return doit();
+  return "* *" + std::string(left_padding, ' ') + version_str +
+         std::string(right_padding, ' ') + "* *";
 }

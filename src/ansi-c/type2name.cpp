@@ -86,9 +86,9 @@ static std::string pointer_offset_bits_as_string(
   const typet &type,
   const namespacet &ns)
 {
-  mp_integer bits = pointer_offset_bits(type, ns);
-  CHECK_RETURN(bits != -1);
-  return integer2string(bits);
+  auto bits = pointer_offset_bits(type, ns);
+  CHECK_RETURN(bits.has_value());
+  return integer2string(*bits);
 }
 
 static bool parent_is_sym_check=false;
@@ -187,10 +187,9 @@ static std::string type2name(
     else
       result+="ARR"+integer2string(size);
   }
-  else if(type.id()==ID_symbol ||
-          type.id()==ID_c_enum_tag ||
-          type.id()==ID_struct_tag ||
-          type.id()==ID_union_tag)
+  else if(
+    type.id() == ID_symbol_type || type.id() == ID_c_enum_tag ||
+    type.id() == ID_struct_tag || type.id() == ID_union_tag)
   {
     parent_is_sym_check=true;
     result+=type2name_symbol(type, ns, symbol_number);
@@ -204,18 +203,17 @@ static std::string type2name(
       result+="ST";
     if(type.id()==ID_union)
       result+="UN";
-    const struct_union_typet &t=to_struct_union_type(type);
-    const struct_union_typet::componentst &components = t.components();
     result+='[';
-    for(struct_union_typet::componentst::const_iterator
-        it=components.begin();
-        it!=components.end();
-        it++)
+    bool first = true;
+    for(const auto &c : to_struct_union_type(type).components())
     {
-      if(it!=components.begin())
+      if(!first)
         result+='|';
-      result+=type2name(it->type(), ns, symbol_number);
-      irep_idt component_name = it->get_name();
+      else
+        first = false;
+
+      result += type2name(c.type(), ns, symbol_number);
+      const irep_idt &component_name = c.get_name();
       CHECK_RETURN(!component_name.empty());
       result+="'"+id2string(component_name)+"'";
     }

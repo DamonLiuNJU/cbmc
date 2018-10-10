@@ -10,7 +10,6 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <ostream>
 
-#include "invariant.h"
 #include "std_types.h"
 #include "pointer_offset_size.h"
 #include "arith_tools.h"
@@ -38,11 +37,12 @@ void endianness_mapt::build(const typet &src, bool little_endian)
 
 void endianness_mapt::build_little_endian(const typet &src)
 {
-  mp_integer s=pointer_offset_bits(src, ns); // error is -1
-  if(s<=0)
+  auto s = pointer_offset_bits(src, ns);
+
+  if(!s.has_value())
     return;
 
-  std::size_t new_size=map.size()+integer2size_t(s);
+  std::size_t new_size = map.size() + integer2size_t(*s);
   map.reserve(new_size);
 
   for(std::size_t i=map.size(); i<new_size; ++i)
@@ -51,7 +51,7 @@ void endianness_mapt::build_little_endian(const typet &src)
 
 void endianness_mapt::build_big_endian(const typet &src)
 {
-  if(src.id()==ID_symbol)
+  if(src.id() == ID_symbol_type)
     build_big_endian(ns.follow(src));
   else if(src.id()==ID_c_enum_tag)
     build_big_endian(ns.follow_tag(to_c_enum_tag_type(src)));
@@ -63,10 +63,10 @@ void endianness_mapt::build_big_endian(const typet &src)
           src.id()==ID_c_bit_field)
   {
     // these do get re-ordered!
-    mp_integer bits=pointer_offset_bits(src, ns); // error is -1
-    CHECK_RETURN(bits>=0);
+    auto bits = pointer_offset_bits(src, ns); // error is -1
+    CHECK_RETURN(bits.has_value());
 
-    size_t bits_int=integer2size_t(bits), base=map.size();
+    size_t bits_int = integer2size_t(*bits), base = map.size();
 
     for(size_t bit=0; bit<bits_int; bit++)
     {
@@ -78,13 +78,14 @@ void endianness_mapt::build_big_endian(const typet &src)
     const struct_typet &struct_type=to_struct_type(src);
 
     // todo: worry about padding being in wrong order
-    for(struct_typet::componentst::const_iterator
-        it=struct_type.components().begin();
-        it!=struct_type.components().end();
-        it++)
+    for(const auto &c : struct_type.components())
     {
-      build_big_endian(it->type());
+      build_big_endian(c.type());
     }
+  }
+  else if(src.id() == ID_struct_tag)
+  {
+    build_big_endian(ns.follow_tag(to_struct_tag_type(src)));
   }
   else if(src.id()==ID_array)
   {
@@ -119,11 +120,12 @@ void endianness_mapt::build_big_endian(const typet &src)
   {
     // everything else (unions in particular)
     // is treated like a byte-array
-    mp_integer s=pointer_offset_bits(src, ns); // error is -1
-    if(s<=0)
+    auto s = pointer_offset_bits(src, ns); // error is -1
+
+    if(!s.has_value())
       return;
 
-    std::size_t new_size=map.size()+integer2size_t(s);
+    std::size_t new_size = map.size() + integer2size_t(*s);
     map.reserve(new_size);
 
     for(std::size_t i=map.size(); i<new_size; ++i)

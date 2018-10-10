@@ -14,12 +14,13 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <cassert>
 
+#include <util/std_expr.h>
 #include <util/symbol.h>
 
-class ansi_c_declaratort:public exprt
+class ansi_c_declaratort : public nullary_exprt
 {
 public:
-  ansi_c_declaratort():exprt(ID_declarator)
+  ansi_c_declaratort() : nullary_exprt(ID_declarator)
   {
   }
 
@@ -203,16 +204,6 @@ public:
   void set_is_used(bool is_used)
   {
     set(ID_is_used, is_used);
-  }
-
-  bool get_is_always_inline() const
-  {
-    return get_bool(ID_is_always_inline);
-  }
-
-  void set_is_always_inline(bool is_always_inline)
-  {
-    set(ID_is_always_inline, is_always_inline);
   }
 
   void to_symbol(

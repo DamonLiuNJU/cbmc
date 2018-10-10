@@ -163,9 +163,9 @@ void escape_domaint::get_rhs_aliases_address_of(
 
 void escape_domaint::transform(
   locationt from,
-  locationt to,
-  ai_baset &ai,
-  const namespacet &ns)
+  locationt,
+  ai_baset &,
+  const namespacet &)
 {
   if(has_values.is_false())
     return;
@@ -255,8 +255,8 @@ void escape_domaint::transform(
 
 void escape_domaint::output(
   std::ostream &out,
-  const ai_baset &ai,
-  const namespacet &ns) const
+  const ai_baset &,
+  const namespacet &) const
 {
   if(has_values.is_known())
   {
@@ -301,8 +301,8 @@ void escape_domaint::output(
 
 bool escape_domaint::merge(
   const escape_domaint &b,
-  locationt from,
-  locationt to)
+  locationt,
+  locationt)
 {
   bool changed=has_values.is_false();
   has_values=tvt::unknown();
@@ -406,9 +406,7 @@ void escape_analysist::insert_cleanup(
     const code_typet &function_type=to_code_type(function.type());
 
     goto_function.body.insert_before_swap(location);
-    code_function_callt code;
-    code.lhs().make_nil();
-    code.function()=function;
+    code_function_callt code(function);
     code.function().add_source_location()=source_location;
 
     if(function_type.parameters().size()==1)

@@ -11,29 +11,22 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <fstream>
 #include <iostream>
 
-#include "xml.h"
+#include "cmdline.h"
 #include "json.h"
-#include "xml_expr.h"
 #include "json_expr.h"
 #include "json_stream.h"
-#include "cout_message.h"
-#include "cmdline.h"
-
-ui_message_handlert::ui_message_handlert()
-  : _ui(uit::PLAIN),
-    always_flush(false),
-    time(timestampert::make(timestampert::clockt::NONE)),
-    out(std::cout),
-    json_stream(nullptr)
-{
-}
+#include "make_unique.h"
+#include "xml.h"
+#include "xml_expr.h"
 
 ui_message_handlert::ui_message_handlert(
+  message_handlert *_message_handler,
   uit __ui,
   const std::string &program,
   bool always_flush,
   timestampert::clockt clock_type)
-  : _ui(__ui),
+  : message_handler(_message_handler),
+    _ui(__ui),
     always_flush(always_flush),
     time(timestampert::make(clock_type)),
     out(std::cout),
@@ -61,13 +54,8 @@ ui_message_handlert::ui_message_handlert(
 
   case uit::JSON_UI:
     {
-      if(!json_stream)
-      {
-        json_stream =
-          std::unique_ptr<json_stream_arrayt>(new json_stream_arrayt(out));
-      }
-
-      INVARIANT(json_stream, "JSON stream must be initialized before use");
+      json_stream =
+        std::unique_ptr<json_stream_arrayt>(new json_stream_arrayt(out));
       json_stream->push_back().make_object()["program"] = json_stringt(program);
     }
     break;
@@ -78,6 +66,7 @@ ui_message_handlert::ui_message_handlert(
   const class cmdlinet &cmdline,
   const std::string &program)
   : ui_message_handlert(
+      nullptr,
       cmdline.isset("xml-ui") ? uit::XML_UI : cmdline.isset("json-ui")
                                                 ? uit::JSON_UI
                                                 : uit::PLAIN,
@@ -90,6 +79,18 @@ ui_message_handlert::ui_message_handlert(
                 ? timestampert::clockt::WALL_CLOCK
                 : timestampert::clockt::NONE
         : timestampert::clockt::NONE)
+{
+  if(get_ui() == uit::PLAIN)
+  {
+    console_message_handler =
+      util_make_unique<console_message_handlert>(always_flush);
+    message_handler = &*console_message_handler;
+  }
+}
+
+ui_message_handlert::ui_message_handlert(message_handlert &message_handler)
+  : ui_message_handlert(
+      &message_handler, uit::PLAIN, "", false, timestampert::clockt::NONE)
 {
 }
 
@@ -134,13 +135,12 @@ void ui_message_handlert::print(
     {
     case uit::PLAIN:
     {
-      console_message_handlert console_message_handler(always_flush);
       std::stringstream ss;
       const std::string timestamp = time->stamp();
       ss << timestamp << (timestamp.empty() ? "" : " ") << message;
-      console_message_handler.print(level, ss.str());
+      message_handler->print(level, ss.str());
       if(always_flush)
-        console_message_handler.flush(level);
+        message_handler->flush(level);
     }
     break;
 
@@ -149,7 +149,7 @@ void ui_message_handlert::print(
     {
       source_locationt location;
       location.make_nil();
-      print(level, message, -1, location);
+      print(level, message, location);
       if(always_flush)
         flush(level);
     }
@@ -206,7 +206,6 @@ void ui_message_handlert::print(
 void ui_message_handlert::print(
   unsigned level,
   const std::string &message,
-  int sequence_number,
   const source_locationt &location)
 {
   message_handlert::print(level, message);
@@ -217,7 +216,7 @@ void ui_message_handlert::print(
     {
     case uit::PLAIN:
       message_handlert::print(
-        level, message, sequence_number, location);
+        level, message, location);
       break;
 
     case uit::XML_UI:
@@ -230,10 +229,7 @@ void ui_message_handlert::print(
 
       const char *type=level_string(level);
 
-      std::string sequence_number_str=
-        sequence_number>=0?std::to_string(sequence_number):"";
-
-      ui_msg(type, tmp_message, sequence_number_str, location);
+      ui_msg(type, tmp_message, location);
     }
     break;
     }
@@ -242,8 +238,7 @@ void ui_message_handlert::print(
 
 void ui_message_handlert::ui_msg(
   const std::string &type,
-  const std::string &msg1,
-  const std::string &msg2,
+  const std::string &msg,
   const source_locationt &location)
 {
   switch(get_ui())
@@ -252,11 +247,11 @@ void ui_message_handlert::ui_msg(
     break;
 
   case uit::XML_UI:
-    xml_ui_msg(type, msg1, msg2, location);
+    xml_ui_msg(type, msg, location);
     break;
 
   case uit::JSON_UI:
-    json_ui_msg(type, msg1, msg2, location);
+    json_ui_msg(type, msg, location);
     break;
   }
 }
@@ -264,7 +259,6 @@ void ui_message_handlert::ui_msg(
 void ui_message_handlert::xml_ui_msg(
   const std::string &type,
   const std::string &msg1,
-  const std::string &msg2,
   const source_locationt &location)
 {
   xmlt result;
@@ -287,7 +281,6 @@ void ui_message_handlert::xml_ui_msg(
 void ui_message_handlert::json_ui_msg(
   const std::string &type,
   const std::string &msg1,
-  const std::string &msg2,
   const source_locationt &location)
 {
   INVARIANT(json_stream, "JSON stream must be initialized before use");
@@ -309,17 +302,12 @@ void ui_message_handlert::flush(unsigned level)
   switch(get_ui())
   {
   case uit::PLAIN:
-  {
-    console_message_handlert console_message_handler(always_flush);
-    console_message_handler.flush(level);
-  }
-  break;
+    message_handler->flush(level);
+    break;
 
   case uit::XML_UI:
   case uit::JSON_UI:
-  {
     out << std::flush;
-  }
-  break;
+    break;
   }
 }

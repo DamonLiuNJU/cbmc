@@ -11,6 +11,10 @@ Author: Daniel Kroening, kroening@cs.cmu.edu
 
 #include "cpp_typecheck.h"
 
+#ifdef DEBUG
+#include <iostream>
+#endif
+
 #include <util/arith_tools.h>
 #include <util/base_exceptions.h>
 #include <util/simplify_expr.h>
@@ -29,25 +33,24 @@ std::string cpp_typecheckt::template_suffix(
   const cpp_template_args_tct::argumentst &arguments=
     template_args.arguments();
 
-  for(cpp_template_args_tct::argumentst::const_iterator
-      it=arguments.begin();
-      it!=arguments.end();
-      it++)
+  for(const auto &expr : arguments)
   {
     if(first)
       first=false;
     else
       result+=',';
 
-    const exprt expr=*it;
-
-    assert(expr.id()!="ambiguous");
+    DATA_INVARIANT(
+      expr.id() != ID_ambiguous, "template argument must not be ambiguous");
 
     if(expr.id()==ID_type)
     {
       const typet &type=expr.type();
-      if(type.id()==ID_symbol)
-        result+=type.get_string(ID_identifier);
+      if(type.id() == ID_symbol_type)
+        result += id2string(to_symbol_type(type).get_identifier());
+      else if(type.id() == ID_struct_tag ||
+              type.id() == ID_union_tag)
+        result += id2string(to_tag_type(type).get_identifier());
       else
         result+=cpp_type2name(type);
     }
@@ -65,7 +68,7 @@ std::string cpp_typecheckt::template_suffix(
         i=0;
       else if(to_integer(e, i))
       {
-        error().source_location=it->find_source_location();
+        error().source_location = expr.find_source_location();
         error() << "template argument expression expected to be "
                 << "scalar constant, but got `"
                 << to_string(e) << "'" << eom;
@@ -83,17 +86,14 @@ std::string cpp_typecheckt::template_suffix(
 
 void cpp_typecheckt::show_instantiation_stack(std::ostream &out)
 {
-  for(instantiation_stackt::const_iterator
-      s_it=instantiation_stack.begin();
-      s_it!=instantiation_stack.end();
-      s_it++)
+  for(const auto &e : instantiation_stack)
   {
-    const symbolt &symbol=lookup(s_it->identifier);
+    const symbolt &symbol = lookup(e.identifier);
     out << "instantiating `" << symbol.pretty_name << "' with <";
 
-    forall_expr(a_it, s_it->full_template_args.arguments())
+    forall_expr(a_it, e.full_template_args.arguments())
     {
-      if(a_it!=s_it->full_template_args.arguments().begin())
+      if(a_it != e.full_template_args.arguments().begin())
         out << ", ";
 
       if(a_it->id()==ID_type)
@@ -102,7 +102,7 @@ void cpp_typecheckt::show_instantiation_stack(std::ostream &out)
         out << to_string(*a_it);
     }
 
-    out << "> at " << s_it->source_location << '\n';
+    out << "> at " << e.source_location << '\n';
   }
 }
 
@@ -158,8 +158,8 @@ const symbolt &cpp_typecheckt::class_template_symbol(
   new_symbol.type.set(ID_template_class_instance, true);
   new_symbol.type.add_source_location()=template_symbol.location;
   new_symbol.type.set(
-    "specialization_template_args", specialization_template_args);
-  new_symbol.type.set("full_template_args", full_template_args);
+    ID_specialization_template_args, specialization_template_args);
+  new_symbol.type.set(ID_full_template_args, full_template_args);
   new_symbol.type.set(ID_identifier, template_symbol.name);
   new_symbol.mode=template_symbol.mode;
   new_symbol.base_name=template_symbol.base_name;
@@ -186,7 +186,7 @@ const symbolt &cpp_typecheckt::class_template_symbol(
 void cpp_typecheckt::elaborate_class_template(
   const typet &type)
 {
-  if(type.id()!=ID_symbol)
+  if(type.id() != ID_symbol_type)
     return;
 
   const symbolt &symbol = lookup(to_symbol_type(type));
@@ -201,9 +201,9 @@ void cpp_typecheckt::elaborate_class_template(
       type.source_location(),
       lookup(t_type.get(ID_identifier)),
       static_cast<const cpp_template_args_tct &>(
-        t_type.find("specialization_template_args")),
+        t_type.find(ID_specialization_template_args)),
       static_cast<const cpp_template_args_tct &>(
-        t_type.find("full_template_args")));
+        t_type.find(ID_full_template_args)));
   }
 }
 
@@ -220,6 +220,10 @@ const symbolt &cpp_typecheckt::instantiate_template(
   const cpp_template_args_tct &full_template_args,
   const typet &specialization)
 {
+#ifdef DEBUG
+  std::cout << "instantiate_template: " << template_symbol.name << '\n';
+#endif
+
   if(instantiation_stack.size()==MAX_DEPTH)
   {
     error().source_location=source_location;
@@ -233,10 +237,10 @@ const symbolt &cpp_typecheckt::instantiate_template(
   instantiation_stack.back().identifier=template_symbol.name;
   instantiation_stack.back().full_template_args=full_template_args;
 
-  #if 0
+#ifdef DEBUG
   std::cout << "L: " << source_location << '\n';
   std::cout << "I: " << template_symbol.name << '\n';
-  #endif
+#endif
 
   cpp_saved_template_mapt saved_map(template_map);
 
@@ -246,7 +250,7 @@ const symbolt &cpp_typecheckt::instantiate_template(
   assert(!specialization_template_args.has_unassigned());
   assert(!full_template_args.has_unassigned());
 
-  #if 0
+#ifdef DEBUG
   std::cout << "A: <";
   forall_expr(it, specialization_template_args.arguments())
   {
@@ -257,8 +261,8 @@ const symbolt &cpp_typecheckt::instantiate_template(
     else
       std::cout << to_string(*it);
   }
-  std::cout << ">\n";
-  #endif
+  std::cout << ">\n\n";
+#endif
 
   // do we have arguments?
   if(full_template_args.arguments().empty())
@@ -327,8 +331,8 @@ const symbolt &cpp_typecheckt::instantiate_template(
   {
     cpp_scopet &scope=cpp_scopes.get_scope(subscope_name);
 
-    cpp_scopet::id_sett id_set;
-    scope.lookup(template_symbol.base_name, cpp_scopet::SCOPE_ONLY, id_set);
+    const auto id_set =
+      scope.lookup(template_symbol.base_name, cpp_scopet::SCOPE_ONLY);
 
     if(id_set.size()==1)
     {
@@ -369,12 +373,12 @@ const symbolt &cpp_typecheckt::instantiate_template(
   {
     // need non-const handle on template symbol
     symbolt &s=*symbol_table.get_writeable(template_symbol.name);
-    irept &instantiated_with=s.value.add("instantiated_with");
+    irept &instantiated_with = s.value.add(ID_instantiated_with);
     instantiated_with.get_sub().push_back(specialization_template_args);
   }
 
-  #if 0
-  std::cout << "MAP:\n";
+  #ifdef DEBUG
+  std::cout << "CLASS MAP:\n";
   template_map.print(std::cout);
   #endif
 
@@ -407,9 +411,8 @@ const symbolt &cpp_typecheckt::instantiate_template(
     convert_non_template_declaration(new_decl);
 
     // also instantiate all the template methods
-    const exprt &template_methods=
-      static_cast<const exprt &>(
-        template_symbol.value.find("template_methods"));
+    const exprt &template_methods = static_cast<const exprt &>(
+      template_symbol.value.find(ID_template_methods));
 
     for(auto &tm : template_methods.operands())
     {
@@ -432,6 +435,10 @@ const symbolt &cpp_typecheckt::instantiate_template(
 
       // mapping from template arguments to values/types
       template_map.build(method_type, specialization_template_args);
+#ifdef DEBUG
+      std::cout << "METHOD MAP:\n";
+      template_map.print(std::cout);
+#endif
 
       method_decl.remove(ID_template_type);
       method_decl.remove(ID_is_template);
@@ -439,7 +446,18 @@ const symbolt &cpp_typecheckt::instantiate_template(
       convert(method_decl);
     }
 
-    const symbolt &new_symb = lookup(new_decl.type().get(ID_identifier));
+    const irep_idt& new_symb_id = new_decl.type().get(ID_identifier);
+    symbolt &new_symb = symbol_table.get_writeable_ref(new_symb_id);
+
+    // add template arguments to type in order to retrieve template map when
+    // typechecking function body
+    new_symb.type.set(ID_C_template, template_type);
+    new_symb.type.set(ID_C_template_arguments, specialization_template_args);
+
+#ifdef DEBUG
+    std::cout << "instance symbol: " << new_symb.name << "\n\n";
+    std::cout << "template type: " << template_type.pretty() << "\n\n";
+#endif
 
     return new_symb;
   }
@@ -492,7 +510,7 @@ const symbolt &cpp_typecheckt::instantiate_template(
       false,
       false);
 
-    return lookup(to_struct_type(symb.type).components().back().get(ID_name));
+    return lookup(to_struct_type(symb.type).components().back().get_name());
   }
 
   // not a class template, not a class template method,

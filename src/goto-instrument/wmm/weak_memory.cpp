@@ -107,7 +107,6 @@ void weak_memory(
   goto_modelt &goto_model,
   bool SCC,
   instrumentation_strategyt event_strategy,
-  unsigned unwinding_bound,
   bool no_cfg_kill,
   bool no_dependencies,
   loop_strategyt duplicate_body,
@@ -155,7 +154,7 @@ void weak_memory(
     instrumenter.set_parameters_collection(input_max_var,
       input_max_po_trans, ignore_arrays);
   else
-    instrumenter.set_parameters_collection(max_thds, ignore_arrays);
+    instrumenter.set_parameters_collection(max_thds, 0, ignore_arrays);
 
   if(SCC)
   {

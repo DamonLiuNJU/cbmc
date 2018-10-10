@@ -29,8 +29,6 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <langapi/language_util.h>
 
-#include "bv_cbmc.h"
-
 class bmc_covert:
   public cover_goalst::observert,
   public messaget
@@ -144,6 +142,13 @@ protected:
   bmct &bmc;
 };
 
+static bool is_failed_assumption_step(
+  symex_target_equationt::SSA_stepst::const_iterator step,
+  const prop_convt &prop_conv)
+{
+  return step->is_assume() && prop_conv.l_get(step->cond_literal).is_false();
+}
+
 void bmc_covert::satisfying_assignment()
 {
   tests.push_back(testt());
@@ -173,21 +178,8 @@ void bmc_covert::satisfying_assignment()
     }
   }
 
-  build_goto_trace(bmc.equation, bmc.equation.SSA_steps.end(),
-                   solver, bmc.ns, test.goto_trace);
-
-  goto_tracet &goto_trace=test.goto_trace;
-
-  // Now delete anything after first failed assumption
-  for(goto_tracet::stepst::iterator
-      s_it1=goto_trace.steps.begin();
-      s_it1!=goto_trace.steps.end();
-      s_it1++)
-    if(s_it1->is_assume() && !s_it1->cond_value)
-    {
-      goto_trace.steps.erase(++s_it1, goto_trace.steps.end());
-      break;
-    }
+  build_goto_trace(
+    bmc.equation, is_failed_assumption_step, solver, bmc.ns, test.goto_trace);
 }
 
 bool bmc_covert::operator()()
@@ -227,7 +219,7 @@ bool bmc_covert::operator()()
   {
     if(it->is_assert())
     {
-      assert(it->source.pc->is_assert());
+      PRECONDITION(it->source.pc->is_assert());
       const and_exprt c(
         literal_exprt(it->guard_literal), literal_exprt(!it->cond_literal));
       literalt l_c=solver.convert(c);
@@ -247,7 +239,9 @@ bool bmc_covert::operator()()
     cover_goals.add(l);
   }
 
-  assert(cover_goals.size()==goal_map.size());
+  INVARIANT(cover_goals.size() == goal_map.size(),
+    "we add coverage for each goal");
+
 
   status() << "Running " << solver.decision_procedure_text() << eom;
 
@@ -267,7 +261,7 @@ bool bmc_covert::operator()()
     if(g.second.satisfied)
       goals_covered++;
 
-  switch(bmc.ui)
+  switch(bmc.ui_message_handler.get_ui())
   {
     case ui_message_handlert::uit::PLAIN:
     {
@@ -347,8 +341,10 @@ bool bmc_covert::operator()()
 
     case ui_message_handlert::uit::JSON_UI:
     {
+      if(status().tellp() > 0)
+        status() << eom; // force end of previous message
       json_stream_objectt &json_result =
-        status().json_stream().push_back_stream_object();
+        bmc.ui_message_handler.get_json_stream().push_back_stream_object();
       for(const auto &goal_pair : goal_map)
       {
         const goalt &goal=goal_pair.second;
@@ -412,7 +408,7 @@ bool bmc_covert::operator()()
                << (cover_goals.iterations()==1?"":"s")
                << eom;
 
-  if(bmc.ui==ui_message_handlert::uit::PLAIN)
+  if(bmc.ui_message_handler.get_ui() == ui_message_handlert::uit::PLAIN)
   {
     result() << "Test suite:" << '\n';
 
@@ -426,9 +422,7 @@ bool bmc_covert::operator()()
 }
 
 /// Try to cover all goals
-bool bmct::cover(
-  const goto_functionst &goto_functions,
-  const optionst::value_listt &criteria)
+bool bmct::cover(const goto_functionst &goto_functions)
 {
   bmc_covert bmc_cover(goto_functions, *this);
   bmc_cover.set_message_handler(get_message_handler());

@@ -23,8 +23,6 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <goto-programs/xml_goto_trace.h>
 #include <goto-programs/json_goto_trace.h>
 
-#include "bv_cbmc.h"
-
 void bmc_all_propertiest::goal_covered(const cover_goalst::goalt &)
 {
   for(auto &g : goal_map)
@@ -41,10 +39,7 @@ void bmc_all_propertiest::goal_covered(const cover_goalst::goalt &)
       if(solver.l_get(cond).is_false())
       {
         g.second.status=goalt::statust::FAILURE;
-        symex_target_equationt::SSA_stepst::iterator next=c;
-        next++; // include the assertion
-        build_goto_trace(bmc.equation, next, solver, bmc.ns,
-                         g.second.goto_trace);
+        build_goto_trace(bmc.equation, c, solver, bmc.ns, g.second.goto_trace);
         break;
       }
     }
@@ -157,17 +152,24 @@ safety_checkert::resultt bmc_all_propertiest::operator()()
 
 void bmc_all_propertiest::report(const cover_goalst &cover_goals)
 {
-  switch(bmc.ui)
+  switch(bmc.ui_message_handler.get_ui())
   {
   case ui_message_handlert::uit::PLAIN:
     {
       result() << "\n** Results:" << eom;
 
       for(const auto &goal_pair : goal_map)
+      {
         result() << "[" << goal_pair.first << "] "
-                 << goal_pair.second.description << ": "
-                 << goal_pair.second.status_string()
-                 << eom;
+                 << goal_pair.second.description << ": ";
+
+        if(goal_pair.second.status == goalt::statust::SUCCESS)
+          result() << green();
+        else
+          result() << red();
+
+        result() << goal_pair.second.status_string() << reset() << eom;
+      }
 
       if(bmc.options.get_bool_option("trace"))
       {
@@ -175,10 +177,11 @@ void bmc_all_propertiest::report(const cover_goalst &cover_goals)
           if(g.second.status==goalt::statust::FAILURE)
           {
             result() << "\n" << "Trace for " << g.first << ":" << "\n";
-            show_goto_trace(result(), bmc.ns, g.second.goto_trace);
+            show_goto_trace(
+              result(), bmc.ns, g.second.goto_trace, bmc.trace_options());
+            result() << eom;
           }
       }
-      result() << eom;
 
       status() << "\n** " << cover_goals.number_covered()
                << " of " << cover_goals.size() << " failed ("
@@ -206,8 +209,10 @@ void bmc_all_propertiest::report(const cover_goalst &cover_goals)
 
     case ui_message_handlert::uit::JSON_UI:
     {
+      if(result().tellp() > 0)
+        result() << eom; // force end of previous message
       json_stream_objectt &json_result =
-        result().json_stream().push_back_stream_object();
+        bmc.ui_message_handler.get_json_stream().push_back_stream_object();
       json_stream_arrayt &result_array =
         json_result.push_back_stream_array("result");
 

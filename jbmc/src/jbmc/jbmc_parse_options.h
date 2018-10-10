@@ -22,13 +22,14 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <cbmc/bmc.h>
 
-#include <goto-instrument/cover.h>
 #include <goto-programs/class_hierarchy.h>
 #include <goto-programs/goto_trace.h>
 #include <goto-programs/lazy_goto_model.h>
 #include <goto-programs/show_properties.h>
 
 #include <goto-symex/path_storage.h>
+
+#include <solvers/refinement/string_refinement.h>
 
 #include <java_bytecode/java_bytecode_language.h>
 
@@ -47,18 +48,13 @@ class optionst;
   "(document-subgoals)(outfile):" \
   "(object-bits):" \
   "(classpath):(cp):(main-class):" \
-  OPT_GOTO_CHECK \
   "(no-assertions)(no-assumptions)" \
-  "(no-built-in-assertions)" \
   "(xml-ui)(json-ui)" \
   "(smt1)(smt2)(fpa)(cvc3)(cvc4)(boolector)(yices)(z3)(opensmt)(mathsat)" \
   "(no-sat-preprocessor)" \
   "(beautify)" \
   "(dimacs)(refine)(max-node-refinement):(refine-arrays)(refine-arithmetic)"\
-  "(refine-strings)" \
-  "(string-printable)" \
-  "(string-max-length):" \
-  "(string-max-input-length):" \
+  OPT_STRING_REFINEMENT \
   "(16)(32)(64)(LP64)(ILP64)(LLP64)(ILP32)(LP32)" \
   OPT_SHOW_GOTO_FUNCTIONS \
   OPT_SHOW_CLASS_HIERARCHY \
@@ -68,8 +64,9 @@ class optionst;
   "(drop-unused-functions)" \
   "(property):(stop-on-fail)(trace)" \
   "(verbosity):" \
+  "(nondet-static)" \
   "(version)" \
-  "(cover):(symex-coverage-report):" \
+  "(symex-coverage-report):" \
   OPT_TIMESTAMP \
   "(i386-linux)(i386-macos)(i386-win32)(win32)(winx64)" \
   "(ppc-macos)" \
@@ -98,6 +95,12 @@ public:
     const char **argv,
     const std::string &extra_options);
 
+  /// \brief Set the options that have default values
+  ///
+  /// This function can be called from clients that wish to emulate JBMC's
+  /// default behaviour, for example unit tests.
+  static void set_default_options(optionst &);
+
   void process_goto_function(
     goto_model_functiont &function,
     const abstract_goto_modelt &,
@@ -114,7 +117,6 @@ public:
 
 protected:
   ui_message_handlert ui_message_handler;
-  std::unique_ptr<cover_configt> cover_config;
   path_strategy_choosert path_strategy_chooser;
   object_factory_parameterst object_factory_params;
   bool stub_objects_are_not_null;

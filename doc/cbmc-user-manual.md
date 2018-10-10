@@ -145,11 +145,7 @@ You are now ready to \ref man_cbmc-tutorial "use CBMC"!
 
 ### Building CBMC from Source
 
-Alternatively, the CBMC source code is available [via
-SVN](http://www.cprover.org/svn/cbmc/). To compile the source code,
-follow [these
-instructions](http://www.cprover.org/svn/cbmc/trunk/COMPILING).
-
+See \ref compilation-and-development
 
 
 \subsection man_install-eclipse Installing the Eclipse Plugin
@@ -2189,6 +2185,15 @@ The function **\_\_CPROVER\_assume** adds an expression as a constraint
 to the program. If the expression evaluates to false, the execution
 aborts without failure. More detail on the use of assumptions is in the
 section on [Assumptions and Assertions](modeling-assertions.shtml).
+
+#### \_\_CPROVER\_r_ok, \_\_CPROVER\_w_ok
+
+    void __CPROVER_r_ok(const void *, size_t size);
+    void __CPROVER_w_ok(cosnt void *, size_t size);
+
+The function **\_\_CPROVER\_r_ok** returns true if reading the piece of
+memory starting at the given pointer with the given size is safe.
+**\_\_CPROVER\_w_ok** does the same with writing.
 
 #### \_\_CPROVER\_same\_object, \_\_CPROVER\_POINTER\_OBJECT, \_\_CPROVER\_POINTER\_OFFSET, \_\_CPROVER\_DYNAMIC\_OBJECT
 

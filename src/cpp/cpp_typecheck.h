@@ -99,7 +99,7 @@ public:
 
   bool cpp_is_pod(const typet &type) const;
 
-  codet cpp_constructor(
+  optionalt<codet> cpp_constructor(
     const source_locationt &source_location,
     const exprt &object,
     const exprt::operandst &operands);
@@ -262,7 +262,7 @@ protected:
   codet dtor(const symbolt &symb);
 
   void check_member_initializers(
-    const irept &bases,
+    const struct_typet::basest &bases,
     const struct_typet::componentst &components,
     const irept &initializers);
 
@@ -338,13 +338,10 @@ protected:
   };
 
   typedef std::list<method_bodyt> method_bodiest;
+  std::set<irep_idt> methods_seen;
   method_bodiest method_bodies;
 
-  void add_method_body(symbolt *_method_symbol)
-  {
-    method_bodies.push_back(method_bodyt(
-      _method_symbol, template_map, instantiation_stack));
-  }
+  void add_method_body(symbolt *_method_symbol);
 
   bool builtin_factory(const irep_idt &);
 
@@ -382,15 +379,15 @@ protected:
 
   void put_compound_into_scope(const struct_union_typet::componentt &component);
   void typecheck_compound_body(symbolt &symbol);
-  void typecheck_compound_body(struct_union_typet &type) { UNREACHABLE; }
+  void typecheck_compound_body(struct_union_typet &) { UNREACHABLE; }
   void typecheck_enum_body(symbolt &symbol);
-  void typecheck_method_bodies(method_bodiest &);
+  void typecheck_method_bodies();
   void typecheck_compound_bases(struct_typet &type);
   void add_anonymous_members_to_scope(const symbolt &struct_union_symbol);
 
   void move_member_initializers(
     irept &initializers,
-    const typet &type,
+    const code_typet &type,
     exprt &value);
 
   static bool has_const(const typet &type);
@@ -398,15 +395,15 @@ protected:
   static bool has_auto(const typet &type);
 
   void typecheck_member_function(
-    const irep_idt &compound_identifier,
+    const symbolt &compound_symbol,
     struct_typet::componentt &component,
     irept &initializers,
     const typet &method_qualifier,
     exprt &value);
 
   void add_this_to_method_type(
-    const irep_idt &compound_identifier,
-    typet &method_type,
+    const symbolt &compound_symbol,
+    code_typet &method_type,
     const typet &method_qualifier);
 
   // for function overloading
@@ -430,10 +427,8 @@ protected:
 
   const struct_typet &this_struct_type();
 
-  codet cpp_destructor(
-      const source_locationt &source_location,
-      const typet &type,
-      const exprt &object);
+  optionalt<codet>
+  cpp_destructor(const source_locationt &source_location, const exprt &object);
 
   // expressions
   void explicit_typecast_ambiguity(exprt &expr);
@@ -590,6 +585,8 @@ public:
     const typet &type,
     exprt &new_expr,
     bool check_constantness=true);
+
+  bool contains_cpp_name(const exprt &expr);
 
 private:
   typedef std::list<irep_idt> dynamic_initializationst;

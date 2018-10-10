@@ -43,17 +43,17 @@ bool to_integer(const constant_exprt &expr, mp_integer &int_value)
   }
   else if(type_id==ID_unsignedbv)
   {
-    int_value=binary2integer(id2string(value), false);
+    int_value = bv2integer(id2string(value), false);
     return false;
   }
   else if(type_id==ID_signedbv)
   {
-    int_value=binary2integer(id2string(value), true);
+    int_value = bv2integer(id2string(value), true);
     return false;
   }
   else if(type_id==ID_c_bool)
   {
-    int_value=binary2integer(id2string(value), false);
+    int_value = bv2integer(id2string(value), false);
     return false;
   }
   else if(type_id==ID_c_enum)
@@ -61,26 +61,26 @@ bool to_integer(const constant_exprt &expr, mp_integer &int_value)
     const typet &subtype=to_c_enum_type(type).subtype();
     if(subtype.id()==ID_signedbv)
     {
-      int_value=binary2integer(id2string(value), true);
+      int_value = bv2integer(id2string(value), true);
       return false;
     }
     else if(subtype.id()==ID_unsignedbv)
     {
-      int_value=binary2integer(id2string(value), false);
+      int_value = bv2integer(id2string(value), false);
       return false;
     }
   }
   else if(type_id==ID_c_bit_field)
   {
-    const typet &subtype=type.subtype();
+    const typet &subtype = to_c_bit_field_type(type).subtype();
     if(subtype.id()==ID_signedbv)
     {
-      int_value=binary2integer(id2string(value), true);
+      int_value = bv2integer(id2string(value), true);
       return false;
     }
     else if(subtype.id()==ID_unsignedbv)
     {
-      int_value=binary2integer(id2string(value), false);
+      int_value = bv2integer(id2string(value), false);
       return false;
     }
   }
@@ -113,75 +113,56 @@ constant_exprt from_integer(
 
   if(type_id==ID_integer)
   {
-    constant_exprt result(type);
-    result.set_value(integer2string(int_value));
-    return result;
+    return constant_exprt(integer2string(int_value), type);
   }
   else if(type_id==ID_natural)
   {
-    if(int_value<0)
-    {
-      constant_exprt r;
-      r.make_nil();
-      return r;
-    }
-    constant_exprt result(type);
-    result.set_value(integer2string(int_value));
-    return result;
+    PRECONDITION(int_value >= 0);
+    return constant_exprt(integer2string(int_value), type);
   }
   else if(type_id==ID_unsignedbv)
   {
     std::size_t width=to_unsignedbv_type(type).get_width();
-    constant_exprt result(type);
-    result.set_value(integer2binary(int_value, width));
-    return result;
+    return constant_exprt(integer2bv(int_value, width), type);
   }
   else if(type_id==ID_bv)
   {
     std::size_t width=to_bv_type(type).get_width();
-    constant_exprt result(type);
-    result.set_value(integer2binary(int_value, width));
-    return result;
+    return constant_exprt(integer2bv(int_value, width), type);
   }
   else if(type_id==ID_signedbv)
   {
     std::size_t width=to_signedbv_type(type).get_width();
-    constant_exprt result(type);
-    result.set_value(integer2binary(int_value, width));
-    return result;
+    return constant_exprt(integer2bv(int_value, width), type);
   }
   else if(type_id==ID_c_enum)
   {
-    std::size_t width=to_c_enum_type(type).subtype().get_unsigned_int(ID_width);
-    constant_exprt result(type);
-    result.set_value(integer2binary(int_value, width));
-    return result;
+    const std::size_t width =
+      to_c_enum_type(type).subtype().get_size_t(ID_width);
+    return constant_exprt(integer2bv(int_value, width), type);
   }
   else if(type_id==ID_c_bool)
   {
     std::size_t width=to_c_bool_type(type).get_width();
-    constant_exprt result(type);
-    result.set_value(integer2binary(int_value, width));
-    return result;
+    return constant_exprt(integer2bv(int_value, width), type);
   }
   else if(type_id==ID_bool)
   {
-    if(int_value==0)
+    PRECONDITION(int_value == 0 || int_value == 1);
+    if(int_value == 0)
       return false_exprt();
-    else if(int_value==1)
+    else
       return true_exprt();
   }
   else if(type_id==ID_pointer)
   {
-    if(int_value==0)
-      return null_pointer_exprt(to_pointer_type(type));
+    PRECONDITION(int_value == 0);
+    return null_pointer_exprt(to_pointer_type(type));
   }
   else if(type_id==ID_c_bit_field)
   {
     std::size_t width=to_c_bit_field_type(type).get_width();
-    constant_exprt result(type);
-    result.set_value(integer2binary(int_value, width));
-    return result;
+    return constant_exprt(integer2bv(int_value, width), type);
   }
   else if(type_id==ID_fixedbv)
   {
@@ -196,13 +177,8 @@ constant_exprt from_integer(
     ieee_float.from_integer(int_value);
     return ieee_float.to_expr();
   }
-
-  {
+  else
     PRECONDITION(false);
-    constant_exprt r;
-    r.make_nil();
-    return r;
-  }
 }
 
 /// ceil(log2(size))
@@ -285,4 +261,63 @@ void mp_max(mp_integer &a, const mp_integer &b)
 {
   if(b>a)
     a=b;
+}
+
+/// Get a bit with given index from bit-vector representation.
+/// \param src: the bitvector representation
+/// \param bit_index: index (0 is the least significant)
+bool get_bitvector_bit(const irep_idt &src, std::size_t bit_index)
+{
+  // The representation is binary, using '0'/'1',
+  // most significant bit first.
+  PRECONDITION(bit_index < src.size());
+  return src[src.size() - 1 - bit_index] == '1';
+}
+
+/// construct a bit-vector representation from a functor
+/// \param width: the width of the bit-vector
+/// \param f: the functor -- the parameter is the bit index
+/// \returns new bitvector representation
+irep_idt
+make_bvrep(const std::size_t width, const std::function<bool(std::size_t)> f)
+{
+  std::string result(width, ' ');
+
+  for(std::size_t i = 0; i < width; i++)
+    result[width - 1 - i] = f(i) ? '1' : '0';
+
+  return result;
+}
+
+/// perform a binary bit-wise operation, given as a functor,
+/// on a bit-vector representation
+/// \param a: the representation of the first bit vector
+/// \param b: the representation of the second bit vector
+/// \param width: the width of the bit-vector
+/// \param f: the functor
+/// \returns new bitvector representation
+irep_idt bitvector_bitwise_op(
+  const irep_idt &a,
+  const irep_idt &b,
+  const std::size_t width,
+  const std::function<bool(bool, bool)> f)
+{
+  return make_bvrep(width, [&a, &b, f](std::size_t i) {
+    return f(get_bitvector_bit(a, i), get_bitvector_bit(b, i));
+  });
+}
+
+/// perform a unary bit-wise operation, given as a functor,
+/// on a bit-vector representation
+/// \param a: the bit-vector representation
+/// \param width: the width of the bit-vector
+/// \param f: the functor
+/// \returns new bitvector representation
+irep_idt bitvector_bitwise_op(
+  const irep_idt &a,
+  const std::size_t width,
+  const std::function<bool(bool)> f)
+{
+  return make_bvrep(
+    width, [&a, f](std::size_t i) { return f(get_bitvector_bit(a, i)); });
 }

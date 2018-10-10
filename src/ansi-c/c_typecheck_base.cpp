@@ -67,6 +67,15 @@ void c_typecheck_baset::typecheck_symbol(symbolt &symbol)
     // and have static lifetime
     new_name=root_name;
     symbol.is_static_lifetime=true;
+
+    if(symbol.value.is_not_nil())
+    {
+      // According to the C standard this should be an error, but at least some
+      // versions of Visual Studio insist to use this in their C library, and
+      // GCC just warns as well.
+      warning().source_location = symbol.value.find_source_location();
+      warning() << "`extern' symbol should not have an initializer" << eom;
+    }
   }
   else if(!is_function && symbol.value.id()==ID_code)
   {
@@ -333,10 +342,12 @@ void c_typecheck_baset::typecheck_redefinition_non_type(
         // gcc allows re-definition if the first
         // definition is marked as "extern inline"
 
-        if(old_symbol.type.get_bool(ID_C_inlined) &&
-           (config.ansi_c.mode==configt::ansi_ct::flavourt::GCC ||
-            config.ansi_c.mode==configt::ansi_ct::flavourt::APPLE ||
-            config.ansi_c.mode==configt::ansi_ct::flavourt::ARM))
+        if(
+          old_symbol.type.get_bool(ID_C_inlined) &&
+          (config.ansi_c.mode == configt::ansi_ct::flavourt::GCC ||
+           config.ansi_c.mode == configt::ansi_ct::flavourt::CLANG ||
+           config.ansi_c.mode == configt::ansi_ct::flavourt::ARM ||
+           config.ansi_c.mode == configt::ansi_ct::flavourt::VISUAL_STUDIO))
         {
           // overwrite "extern inline" properties
           old_symbol.is_extern=new_symbol.is_extern;
@@ -404,7 +415,7 @@ void c_typecheck_baset::typecheck_redefinition_non_type(
        final_old.subtype()==final_new.subtype())
     {
       // we don't do symbol types for arrays anymore
-      PRECONDITION(old_symbol.type.id()!=ID_symbol);
+      PRECONDITION(old_symbol.type.id() != ID_symbol_type);
       old_symbol.type=new_symbol.type;
     }
     else if((final_old.id()==ID_incomplete_c_enum ||
@@ -689,7 +700,6 @@ void c_typecheck_baset::typecheck_declaration(
       declaration.set_is_typedef(full_spec.is_typedef);
       declaration.set_is_weak(full_spec.is_weak);
       declaration.set_is_used(full_spec.is_used);
-      declaration.set_is_always_inline(full_spec.is_always_inline);
 
       symbolt symbol;
       declaration.to_symbol(*d_it, symbol);

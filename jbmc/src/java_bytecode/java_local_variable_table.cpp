@@ -24,15 +24,18 @@ Author: Chris Smowton, chris.smowton@diffblue.com
 // Specialise the CFG representation to work over Java instead of GOTO programs.
 // This must be done at global scope due to template resolution rules.
 
-template<class T>
+template <class T>
 struct procedure_local_cfg_baset<
   T,
   java_bytecode_convert_methodt::method_with_amapt,
-  unsigned> :
-  public grapht<cfg_base_nodet<T, unsigned> >
+  java_bytecode_convert_methodt::method_offsett>
+  : public grapht<
+      cfg_base_nodet<T, java_bytecode_convert_methodt::method_offsett>>
 {
   typedef java_bytecode_convert_methodt::method_with_amapt method_with_amapt;
-  typedef std::map<unsigned, unsigned> entry_mapt;
+  typedef std::map<java_bytecode_convert_methodt::method_offsett,
+                   java_bytecode_convert_methodt::method_offsett>
+    entry_mapt;
   entry_mapt entry_map;
 
   procedure_local_cfg_baset() {}
@@ -82,17 +85,19 @@ struct procedure_local_cfg_baset<
     }
   }
 
-  unsigned get_first_node(const method_with_amapt &args) const
+  java_bytecode_convert_methodt::method_offsett
+  get_first_node(const method_with_amapt &args) const
   {
     return args.second.begin()->first;
   }
 
-  unsigned get_last_node(const method_with_amapt &args) const
+  java_bytecode_convert_methodt::method_offsett
+  get_last_node(const method_with_amapt &args) const
   {
     return (--args.second.end())->first;
   }
 
-  unsigned nodes_empty(const method_with_amapt &args) const
+  bool nodes_empty(const method_with_amapt &args) const
   {
     return args.second.empty();
   }
@@ -212,12 +217,14 @@ static bool is_store_to_slot(
 /// \return Adds a hole to `var`, unless it would be of zero size.
 static void maybe_add_hole(
   local_variable_with_holest &var,
-  unsigned from,
-  unsigned to)
+  java_bytecode_convert_methodt::method_offsett from,
+  java_bytecode_convert_methodt::method_offsett to)
 {
   PRECONDITION(to>=from);
   if(to!=from)
-    var.holes.push_back({from, to-from});
+    var.holes.push_back(
+      {from,
+       static_cast<java_bytecode_convert_methodt::method_offsett>(to - from)});
 }
 
 /// See above
@@ -237,9 +244,8 @@ static void populate_variable_address_map(
     if(it->var.start_pc+it->var.length>live_variable_at_address.size())
       live_variable_at_address.resize(it->var.start_pc+it->var.length);
 
-    for(unsigned idx=it->var.start_pc,
-          idxlim=it->var.start_pc+it->var.length;
-        idx!=idxlim;
+    for(auto idx = it->var.start_pc, idxlim = it->var.start_pc + it->var.length;
+        idx != idxlim;
         ++idx)
     {
       INVARIANT(!live_variable_at_address[idx], "Local variable table clash?");
@@ -303,7 +309,7 @@ static void populate_predecessor_map(
 #endif
 
     // Find the last instruction within the live range:
-    unsigned end_pc=it->var.start_pc+it->var.length;
+    const auto end_pc = it->var.start_pc + it->var.length;
     auto amapit=amap.find(end_pc);
     INVARIANT(
       amapit!=amap.begin(),
@@ -322,7 +328,7 @@ static void populate_predecessor_map(
     // range of variable it to the first one. For each value of the iterator
     // "amapit" we search for instructions that jump into amapit's address
     // (predecessors)
-    unsigned new_start_pc=it->var.start_pc;
+    auto new_start_pc = it->var.start_pc;
     for(; amapit->first>=it->var.start_pc; --amapit)
     {
       for(auto pred : amapit->second.predecessors)
@@ -417,20 +423,22 @@ static void populate_predecessor_map(
 /// \return Returns the bytecode address of the closest common dominator of all
 ///   given variable table entries. In the worst case the function entry point
 ///   should always satisfy this criterion.
-static unsigned get_common_dominator(
-  const std::set<local_variable_with_holest*> &merge_vars,
+static java_bytecode_convert_methodt::method_offsett get_common_dominator(
+  const std::set<local_variable_with_holest *> &merge_vars,
   const java_cfg_dominatorst &dominator_analysis)
 {
   PRECONDITION(!merge_vars.empty());
 
-  unsigned first_pc=UINT_MAX;
+  auto first_pc =
+    std::numeric_limits<java_bytecode_convert_methodt::method_offsett>::max();
   for(auto v : merge_vars)
   {
     if(v->var.start_pc<first_pc)
       first_pc=v->var.start_pc;
   }
 
-  std::vector<unsigned> candidate_dominators;
+  std::vector<java_bytecode_convert_methodt::method_offsett>
+    candidate_dominators;
   for(auto v : merge_vars)
   {
     const auto &dominator_nodeidx=
@@ -451,7 +459,7 @@ static unsigned get_common_dominator(
       domit!=domitend;
       /* Don't increment here */)
   {
-    unsigned repeats=0;
+    std::size_t repeats = 0;
     auto dom=*domit;
     while(domit!=domitend && *domit==dom)
     {
@@ -477,7 +485,7 @@ static unsigned get_common_dominator(
 static void populate_live_range_holes(
   local_variable_with_holest &merge_into,
   const std::set<local_variable_with_holest *> &merge_vars,
-  unsigned expanded_live_range_start)
+  java_bytecode_convert_methodt::method_offsett expanded_live_range_start)
 {
   std::vector<local_variable_with_holest *> sorted_by_startpc(
     merge_vars.begin(), merge_vars.end());
@@ -487,7 +495,9 @@ static void populate_live_range_holes(
     merge_into,
     expanded_live_range_start,
     sorted_by_startpc[0]->var.start_pc);
-  for(std::size_t idx=0; idx<sorted_by_startpc.size()-1; ++idx)
+  for(java_bytecode_convert_methodt::method_offsett idx = 0;
+      idx < sorted_by_startpc.size() - 1;
+      ++idx)
   {
     maybe_add_hole(
       merge_into,
@@ -513,7 +523,7 @@ static void merge_variable_table_entries(
   // we must have the merged variable
   // enter scope both in a block that dominates all entries, and which
   // precedes them in program order.
-  unsigned found_dominator=
+  const auto found_dominator =
     get_common_dominator(merge_vars, dominator_analysis);
 
   // Populate the holes in the live range
@@ -522,7 +532,7 @@ static void merge_variable_table_entries(
   // as it was not visible in the original local variable table)
   populate_live_range_holes(merge_into, merge_vars, found_dominator);
 
-  unsigned last_pc=0;
+  java_bytecode_convert_methodt::method_offsett last_pc = 0;
   for(auto v : merge_vars)
   {
     if(v->var.start_pc+v->var.length>last_pc)
@@ -768,9 +778,20 @@ void java_bytecode_convert_methodt::setup_local_variables(
             << " name " << v.var.name << " v.var.descriptor '"
             << v.var.descriptor << "' holes " << v.holes.size() << eom;
 #endif
-    typet t;
-    // TODO: might need changing once descriptor/signature issue is resolved
-    t=java_type_from_string(v.var.descriptor);
+
+    const std::string &method_name = id2string(method_id);
+    const size_t method_name_end = method_name.rfind(":(");
+    const size_t class_name_end = method_name.rfind('.', method_name_end);
+    INVARIANT(
+      method_name_end != std::string::npos &&
+        class_name_end != std::string::npos,
+      "A method name has the format class `.` method `:(`signature`)`.");
+    const std::string class_name = method_name.substr(0, class_name_end);
+
+    const typet t = v.var.signature.has_value()
+                      ? java_type_from_string_with_exception(
+                          v.var.descriptor, v.var.signature, class_name)
+                      : java_type_from_string(v.var.descriptor);
 
     std::ostringstream id_oss;
     id_oss << method_id << "::" << v.var.start_pc << "::" << v.var.name;

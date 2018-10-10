@@ -16,6 +16,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <unordered_set>
 
 #include <analyses/dirty.h>
+#include <analyses/local_safe_pointers.h>
 
 #include <util/invariant.h>
 #include <util/guard.h>
@@ -178,10 +179,6 @@ public:
     bool record_value,
     bool allow_pointer_unsoundness=false);
 
-  // what to propagate
-  bool constant_propagation(const exprt &expr) const;
-  bool constant_propagation_reference(const exprt &expr) const;
-
   // undoes all levels of renaming
   void get_original_name(exprt &expr) const;
   void get_original_name(typet &type) const;
@@ -197,6 +194,8 @@ protected:
   l1_typest l1_types;
 
 public:
+  std::unordered_map<irep_idt, local_safe_pointerst> safe_pointers;
+
   // uses level 1 names, and is used to
   // do dereferencing
   value_sett value_set;
@@ -211,6 +210,7 @@ public:
     symex_targett::sourcet source;
     propagationt propagation;
     unsigned atomic_section_id;
+    std::unordered_map<irep_idt, local_safe_pointerst> safe_pointers;
 
     explicit goto_statet(const goto_symex_statet &s):
       depth(s.depth),
@@ -219,7 +219,8 @@ public:
       guard(s.guard),
       source(s.source),
       propagation(s.propagation),
-      atomic_section_id(s.atomic_section_id)
+      atomic_section_id(s.atomic_section_id),
+      safe_pointers(s.safe_pointers)
     {
     }
 
@@ -247,6 +248,7 @@ public:
       guard(s.guard),
       source(s.source),
       propagation(s.propagation),
+      safe_pointers(s.safe_pointers),
       value_set(s.value_set),
       atomic_section_id(s.atomic_section_id)
   {

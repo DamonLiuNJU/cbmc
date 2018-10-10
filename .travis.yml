@@ -57,6 +57,7 @@ jobs:
           packages:
             - cmake
             - google-cloud-sdk
+            - graphviz
       cache:
         directories:
           - ${TRAVIS_BUILD_DIR}/doxygen/build/bin
@@ -101,7 +102,6 @@ jobs:
             - g++-5
             - libubsan0
             - parallel
-            - libc6-dev-i386
       before_install:
         - mkdir bin
         - ln -s /usr/bin/gcc-5 bin/gcc
@@ -136,7 +136,6 @@ jobs:
             - libwww-perl
             - g++-5
             - libubsan0
-            - libc6-dev-i386
       before_install:
         - mkdir bin
         - ln -s /usr/bin/gcc-5 bin/gcc
@@ -150,23 +149,24 @@ jobs:
     # Ubuntu Linux with glibc using clang++-3.7, no-debug mode
     - stage: Test different OS/CXX/Flags
       os: linux
-      sudo: false
+      sudo: true
       compiler: clang
       cache: ccache
       addons:
         apt:
           sources:
             - ubuntu-toolchain-r-test
-            - llvm-toolchain-precise-3.7
           packages:
             - libwww-perl
-            - clang-3.7
             - g++-5
             - libstdc++-5-dev
             - libubsan0
             - parallel
-            - libc6-dev-i386
       before_install:
+        - curl -sSL "http://apt.llvm.org/llvm-snapshot.gpg.key" | sudo -E apt-key add -
+        - echo "deb http://apt.llvm.org/precise/ llvm-toolchain-precise-3.7 main" | sudo tee -a /etc/apt/sources.list > /dev/null
+        - sudo apt-get update --option Acquire::Retries=100 --option Acquire::http::Timeout="60"
+        - sudo -E apt-get -yq --no-install-suggests --no-install-recommends --force-yes install clang-3.7
         - mkdir bin
         - ln -s /usr/bin/gcc-5 bin/gcc
         - ln -s /usr/bin/c++-5 bin/g++
@@ -180,22 +180,23 @@ jobs:
     # Ubuntu Linux with glibc using clang++-3.7, debug mode, disable USE_DSTRING
     - stage: Test different OS/CXX/Flags
       os: linux
-      sudo: false
+      sudo: true
       compiler: clang
       cache: ccache
       addons:
         apt:
           sources:
             - ubuntu-toolchain-r-test
-            - llvm-toolchain-precise-3.7
           packages:
             - libwww-perl
-            - clang-3.7
             - g++-5
             - libstdc++-5-dev
             - libubsan0
-            - libc6-dev-i386
       before_install:
+        - curl -sSL "http://apt.llvm.org/llvm-snapshot.gpg.key" | sudo -E apt-key add -
+        - echo "deb http://apt.llvm.org/precise/ llvm-toolchain-precise-3.7 main" | sudo tee -a /etc/apt/sources.list > /dev/null
+        - sudo apt-get update --option Acquire::Retries=100 --option Acquire::http::Timeout="60"
+        - sudo -E apt-get -yq --no-install-suggests --no-install-recommends --force-yes install clang-3.7
         - mkdir bin
         - ln -s /usr/bin/gcc-5 bin/gcc
         - ln -s /usr/bin/g++-5 bin/g++
@@ -220,7 +221,6 @@ jobs:
             - ubuntu-toolchain-r-test
           packages:
             - g++-5
-            - libc6-dev-i386
       before_install:
         - mkdir bin
         - ln -s /usr/bin/gcc-5 bin/gcc
@@ -229,6 +229,7 @@ jobs:
         - ccache -z
         - ccache --max-size=1G
         - cmake -H. -Bbuild '-DCMAKE_BUILD_TYPE=Release'  '-DCMAKE_CXX_COMPILER=/usr/bin/g++-5'
+        - git submodule update --init --recursive
         - cmake --build build -- -j4
       script: (cd build; ctest -V -L CORE -j2)
 
@@ -245,7 +246,6 @@ jobs:
             - ubuntu-toolchain-r-test
           packages:
             - g++-7
-            - libc6-dev-i386
       before_install:
         - mkdir bin
         - ln -s /usr/bin/gcc-7 bin/gcc
@@ -254,6 +254,7 @@ jobs:
         - ccache -z
         - ccache --max-size=1G
         - cmake -H. -Bbuild '-DCMAKE_BUILD_TYPE=Release'  '-DCMAKE_CXX_COMPILER=/usr/bin/g++-7'
+        - git submodule update --init --recursive
         - cmake --build build -- -j4
       script: (cd build; ctest -V -L CORE -j2)
 
@@ -276,7 +277,6 @@ jobs:
             - libstdc++-5-dev
             - libubsan0
             - parallel
-            - libc6-dev-i386
       before_install:
         - mkdir bin
         # Use gcc/g++ 5 for tests, as Clang doesn't work yet
@@ -287,6 +287,7 @@ jobs:
         - ccache -z
         - ccache --max-size=1G
         - cmake -H. -Bbuild '-DCMAKE_BUILD_TYPE=Release' '-DCMAKE_CXX_COMPILER=/usr/bin/clang++-6.0' '-DCMAKE_CXX_FLAGS=-Qunused-arguments'
+        - git submodule update --init --recursive
         - cmake --build build -- -j4
       script: (cd build; ctest -V -L CORE -j2)
 
@@ -305,6 +306,7 @@ jobs:
         - ccache -z
         - ccache --max-size=1G
         - cmake -H. -Bbuild '-DCMAKE_BUILD_TYPE=Release' '-DCMAKE_OSX_ARCHITECTURES=x86_64'
+        - git submodule update --init --recursive
         - cmake --build build -- -j4
       script: (cd build; ctest -V -L CORE -j2)
 
@@ -328,7 +330,7 @@ jobs:
             name: "diffblue/cbmc"
             description: "Travis build of ${TRAVIS_COMMIT}"
           notification_email: "coverity-scan@diffblue.com"
-          build_command_prepend: "make -C jbmc/src java-models-library-download"
+          build_command_prepend: "make -C jbmc/src setup-submodules"
           build_command_prepend: "make -C src minisat2-download"
           build_command: "make -C src -j2; make -C jbmc/src -j2"
           branch_pattern: "develop"
@@ -349,12 +351,11 @@ jobs:
 install:
   - ccache -z
   - ccache --max-size=1G
-  - make -C jbmc/src java-models-library-download
+  - make -C jbmc/src setup-submodules
   - make -C src minisat2-download
   - make -C src/ansi-c library_check
   - make -C src/cpp library_check
   - make -C src "CXX=${COMPILER} ${EXTRA_CXXFLAGS}" -j3
-  - make -C src "CXX=${COMPILER} ${EXTRA_CXXFLAGS}" -j3 clobber.dir memory-models.dir
   - make -C jbmc/src "CXX=${COMPILER} ${EXTRA_CXXFLAGS}" -j3
 
 script:

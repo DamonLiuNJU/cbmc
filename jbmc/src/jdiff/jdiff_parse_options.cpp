@@ -20,6 +20,7 @@ Author: Peter Schrammel
 #include <util/exit_codes.h>
 #include <util/make_unique.h>
 #include <util/options.h>
+#include <util/version.h>
 
 #include <langapi/language.h>
 
@@ -38,12 +39,11 @@ Author: Peter Schrammel
 #include <goto-programs/remove_unused_functions.h>
 #include <goto-programs/remove_vector.h>
 #include <goto-programs/remove_virtual_functions.h>
+#include <goto-programs/rewrite_union.h>
 #include <goto-programs/set_properties.h>
 #include <goto-programs/show_properties.h>
 #include <goto-programs/string_abstraction.h>
 #include <goto-programs/string_instrumentation.h>
-
-#include <goto-symex/rewrite_union.h>
 
 #include <goto-instrument/cover.h>
 
@@ -55,18 +55,18 @@ Author: Peter Schrammel
 
 #include <langapi/mode.h>
 
-#include <cbmc/version.h>
-
 #include "java_syntactic_diff.h"
 #include <goto-diff/change_impact.h>
 #include <goto-diff/goto_diff.h>
 #include <goto-diff/unified_diff.h>
 
+// TODO: do not use language_uit for this; requires a refactoring of
+//   initialize_goto_model to support parsing specific command line files
 jdiff_parse_optionst::jdiff_parse_optionst(int argc, const char **argv)
   : parse_options_baset(JDIFF_OPTIONS, argc, argv),
-    jdiff_languagest(cmdline, ui_message_handler),
-    ui_message_handler(cmdline, "JDIFF " CBMC_VERSION),
-    languages2(cmdline, ui_message_handler)
+    jdiff_languagest(cmdline, ui_message_handler, &options),
+    ui_message_handler(cmdline, std::string("JDIFF ") + CBMC_VERSION),
+    languages2(cmdline, ui_message_handler, &options)
 {
 }
 
@@ -75,9 +75,9 @@ jdiff_parse_optionst::jdiff_parse_optionst(int argc, const char **argv)
   const char **argv,
   const std::string &extra_options)
   : parse_options_baset(JDIFF_OPTIONS + extra_options, argc, argv),
-    jdiff_languagest(cmdline, ui_message_handler),
-    ui_message_handler(cmdline, "JDIFF " CBMC_VERSION),
-    languages2(cmdline, ui_message_handler)
+    jdiff_languagest(cmdline, ui_message_handler, &options),
+    ui_message_handler(cmdline, std::string("JDIFF ") + CBMC_VERSION),
+    languages2(cmdline, ui_message_handler, &options)
 {
 }
 
@@ -88,6 +88,13 @@ void jdiff_parse_optionst::get_command_line_options(optionst &options)
     usage_error();
     exit(1);
   }
+
+  // TODO: improve this when language front ends have been
+  //   disentangled from command line parsing
+  // we always require these options
+  cmdline.set("no-lazy-methods");
+  cmdline.set("no-refine-strings");
+  parse_java_language_options(cmdline, options);
 
   if(cmdline.isset("cover"))
     parse_cover_options(cmdline, options);
@@ -201,8 +208,8 @@ int jdiff_parse_optionst::doit()
   //
   // Print a banner
   //
-  status() << "JDIFF version " CBMC_VERSION " " << sizeof(void *) * 8 << "-bit "
-           << config.this_architecture() << " "
+  status() << "JDIFF version " << CBMC_VERSION << " " << sizeof(void *) * 8
+           << "-bit " << config.this_architecture() << " "
            << config.this_operating_system() << eom;
 
   if(cmdline.args.size() != 2)
@@ -269,8 +276,7 @@ int jdiff_parse_optionst::doit()
   }
 
   java_syntactic_difft sd(
-    goto_model1, goto_model2, options, get_message_handler());
-  sd.set_ui(get_ui());
+    goto_model1, goto_model2, options, ui_message_handler);
   sd();
   sd.output_functions();
 
@@ -346,9 +352,9 @@ bool jdiff_parse_optionst::process_goto_program(
     // Java virtual functions -> explicit dispatch tables:
     remove_virtual_functions(goto_model);
     // remove catch and throw
-    remove_exceptions(goto_model);
+    remove_exceptions(goto_model, get_message_handler());
     // Java instanceof -> clsid comparison:
-    remove_instanceof(goto_model);
+    remove_instanceof(goto_model, get_message_handler());
 
     mm_io(goto_model);
 
@@ -429,10 +435,9 @@ bool jdiff_parse_optionst::process_goto_program(
 void jdiff_parse_optionst::help()
 {
   // clang-format off
-  std::cout <<
-    "\n"
-    // NOLINTNEXTLINE(whitespace/line_length)
-    "* *           JDIFF " CBMC_VERSION " - Copyright (C) 2016-2018       * *\n"
+  std::cout << '\n' << banner_string("JDIFF", CBMC_VERSION) << '\n'
+            <<
+    "* *                Copyright (C) 2016-2018                  * *\n"
     "* *            Daniel Kroening, Peter Schrammel             * *\n"
     "* *                 kroening@kroening.com                   * *\n"
     "\n"

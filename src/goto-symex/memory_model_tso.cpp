@@ -19,7 +19,7 @@ void memory_model_tsot::operator()(symex_target_equationt &equation)
   statistics() << "Adding TSO constraints" << eom;
 
   build_event_lists(equation);
-  build_clock_type(equation);
+  build_clock_type();
 
   read_from(equation);
   write_serialization_external(equation);
@@ -39,8 +39,8 @@ bool memory_model_tsot::program_order_is_relaxed(
   partial_order_concurrencyt::event_it e1,
   partial_order_concurrencyt::event_it e2) const
 {
-  assert(e1->is_shared_read() || e1->is_shared_write());
-  assert(e2->is_shared_read() || e2->is_shared_write());
+  PRECONDITION(e1->is_shared_read() || e1->is_shared_write());
+  PRECONDITION(e2->is_shared_read() || e2->is_shared_write());
 
   // no po relaxation within atomic sections
   if(e1->atomic_section_id!=0 &&
@@ -107,7 +107,7 @@ void memory_model_tsot::program_order(
 
         if((*e_it2)->is_memory_barrier())
         {
-          const codet &code=to_code((*e_it2)->source.pc->code);
+          const codet &code = (*e_it2)->source.pc->code;
 
           if((*e_it)->is_shared_read() &&
              !code.get_bool(ID_RRfence) &&

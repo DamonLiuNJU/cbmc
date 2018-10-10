@@ -21,6 +21,8 @@ Date:   December 2016
 #include <util/cprover_prefix.h>
 #include <util/prefix.h>
 
+#include <util/invariant.h>
+
 #include <goto-programs/goto_functions.h>
 #include <goto-programs/remove_skip.h>
 
@@ -32,8 +34,8 @@ void slice_global_inits(goto_modelt &goto_model)
   const irep_idt entry_point=goto_functionst::entry_point();
   goto_functionst &goto_functions=goto_model.goto_functions;
 
-  if(!goto_functions.function_map.count(entry_point))
-    throw "entry point not found";
+  if(goto_functions.function_map.count(entry_point) == 0)
+    throw user_input_error_exceptiont("entry point not found");
 
   // Get the call graph restricted to functions reachable from
   // the entry point:
@@ -52,13 +54,17 @@ void slice_global_inits(goto_modelt &goto_model)
     const irep_idt &id = directed_graph[node_idx].function;
     if(id == INITIALIZE_FUNCTION)
       continue;
-    const goto_functionst::goto_functiont &goto_function
-      =goto_functions.function_map.at(id);
-    const goto_programt &goto_program=goto_function.body;
+
+    // assume function has no body if it is not in the function map
+    const auto &it = goto_functions.function_map.find(id);
+    if(it == goto_functions.function_map.end())
+      continue;
+
+    const goto_programt &goto_program = it->second.body;
 
     forall_goto_program_instructions(i_it, goto_program)
     {
-      const codet &code=i_it->code;
+      const codet &code = i_it->code;
       find_symbols(code, symbols, true, false);
       const exprt &expr = i_it->guard;
       find_symbols(expr, symbols, true, false);
@@ -69,7 +75,8 @@ void slice_global_inits(goto_modelt &goto_model)
 
   goto_functionst::function_mapt::iterator f_it;
   f_it=goto_functions.function_map.find(INITIALIZE_FUNCTION);
-  assert(f_it!=goto_functions.function_map.end());
+  if(f_it == goto_functions.function_map.end())
+    throw incorrect_goto_program_exceptiont("initialize function not found");
 
   goto_programt &goto_program=f_it->second.body;
 

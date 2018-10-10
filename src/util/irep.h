@@ -10,10 +10,11 @@ Author: Daniel Kroening, kroening@kroening.com
 #ifndef CPROVER_UTIL_IREP_H
 #define CPROVER_UTIL_IREP_H
 
-#include <cassert>
 #include <string>
 #include <vector>
 
+#include "deprecate.h"
+#include "invariant.h"
 #include "irep_ids.h"
 
 #define SHARING
@@ -81,8 +82,77 @@ inline const std::string &name2string(const irep_namet &n)
 class irept;
 const irept &get_nil_irep();
 
-/*! \brief Base class for tree-like data structures with sharing
-*/
+/// \brief Base class for tree-like data structures with sharing
+///
+/// There are a large number of kinds of tree structured or tree-like data in
+/// CPROVER. \ref irept provides a single, unified representation for all of
+/// these, allowing structure sharing and reference counting of data. As
+/// such \ref irept is the basic unit of data in CPROVER.  Each \ref irept
+/// contains (or references, if reference counted data sharing is enabled, as
+/// it is by default - see the `SHARING` macro) a basic unit of data (of type
+/// \ref dt) which contains four things:
+///
+/// * \ref irept::dt::data : A string, which is returned when the \ref id()
+///   function is used. (Unless `USE_STD_STRING` is set, this is actually a
+///   \ref dstringt and thus an integer which is a reference into a string
+///   table.)
+///
+/// * \ref irept::dt::named_sub : A map from `irep_namet` (a string) to \ref
+///   irept. This is used for named children, i.e.  subexpressions, parameters,
+///   etc.
+///
+/// * \ref irept::dt::comments : Another map from `irep_namet` to \ref irept
+///   which is used for annotations and other ‘non-semantic’ information. Note
+///   that this map is ignored by the default \ref operator==.
+///
+/// * \ref irept::dt::sub : A vector of \ref irept which is used to store
+///   ordered but unnamed children.
+///
+/// The \ref irept::pretty function outputs the explicit tree structure of
+/// an \ref irept and can be used to understand and debug problems with
+/// `irept`s.
+///
+/// On their own `irept`s do not "mean" anything; they are effectively
+/// generic tree nodes. Their interpretation depends on the contents of
+/// result of the \ref id() function, i.e. the `data` field. `util/irep_ids.def`
+/// contains a list of `id` values. During the build process it is used
+/// to generate `util/irep_ids.h` which gives constants for each id
+/// (named `ID_`). You can also make `irep_idt`s which do not come from
+/// `util/irep_ids.def`. An `irep_idt` can then be used to identify what
+/// kind of data the \ref irept stores and thus what can be done with it.
+///
+/// To simplify this process, there are a variety of classes that inherit
+/// from \ref irept, roughly corresponding to the ids listed (i.e. `ID_or`
+/// (the string "or”) corresponds to the class \ref or_exprt). These give
+/// semantically relevant accessor functions for the data; effectively
+/// different APIs for the same underlying data structure. None of these
+/// classes add fields (only methods) and so static casting can be used. The
+/// inheritance graph of the subclasses of \ref irept is a useful starting
+/// point for working out how to manipulate data.
+///
+/// There are three main groups of classes (or APIs); those derived from
+/// \ref typet, \ref codet and \ref exprt respectively. Although all of these
+/// inherit from \ref irept, these are the most abstract level that code should
+/// handle data. If code is manipulating plain `irept`s then something is wrong
+/// with the architecture of the code.
+///
+/// Many of the key descendants of \ref exprt are declared in \ref std_expr.h.
+/// All expressions have a named subexpression with ID "type", which gives the
+/// type of the expression (slightly simplified from C/C++ as \ref
+/// unsignedbv_typet, \ref signedbv_typet, \ref floatbv_typet, etc.). All type
+/// conversions are explicit with a \ref typecast_exprt. One key descendant of
+/// \ref exprt is \ref symbol_exprt which creates \ref irept instances with ID
+/// “symbol”. These are used to represent variables; the name of which can be
+/// found using the `get_identifier` accessor function.
+///
+/// \ref codet inherits from \ref exprt and is defined in `std_code.h`. It
+/// represents executable code; statements in a C-like language rather than
+/// expressions. In the front-end there are versions of these that hold
+/// whole code blocks, but in goto-programs these have been flattened so
+/// that each \ref irept represents one sequence point (almost one line of
+/// code / one semi-colon). The most common descendant of \ref codet is
+/// \ref code_assignt so a common pattern is to cast the \ref codet to an
+/// assignment and then recurse on the expression on either side.
 class irept
 {
 public:
@@ -122,7 +192,7 @@ public:
     if(data!=&empty_d)
     {
       // NOLINTNEXTLINE(build/deprecated)
-      assert(data->ref_count!=0);
+      PRECONDITION(data->ref_count != 0);
       data->ref_count++;
       #ifdef IREP_DEBUG
       std::cout << "COPY " << data << " " << data->ref_count << '\n';
@@ -207,6 +277,8 @@ public:
   const irep_idt &get(const irep_namet &name) const;
   bool get_bool(const irep_namet &name) const;
   signed int get_int(const irep_namet &name) const;
+  /// \deprecated use get_size_t instead
+  DEPRECATED("Use get_size_t instead")
   unsigned int get_unsigned_int(const irep_namet &name) const;
   std::size_t get_size_t(const irep_namet &name) const;
   long long get_long_long(const irep_namet &name) const;
@@ -388,6 +460,21 @@ struct irep_full_eq
   bool operator()(const irept &i1, const irept &i2) const
   {
     return i1.full_eq(i2);
+  }
+};
+
+struct irep_pretty_diagnosticst
+{
+  const irept &irep;
+  explicit irep_pretty_diagnosticst(const irept &irep);
+};
+
+template <>
+struct diagnostics_helpert<irep_pretty_diagnosticst>
+{
+  static std::string diagnostics_as_string(const irep_pretty_diagnosticst &irep)
+  {
+    return irep.irep.pretty();
   }
 };
 

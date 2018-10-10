@@ -46,8 +46,6 @@ Author: CM Wintersteiger, 2006
 
 #include <goto-programs/read_goto_binary.h>
 
-#include <cbmc/version.h>
-
 #include "hybrid_binary.h"
 #include "linker_script_merge.h"
 
@@ -165,7 +163,7 @@ int ld_modet::run_ld()
     debug() << " " << new_argv[i];
   debug() << eom;
 
-  return run(new_argv[0], new_argv, cmdline.stdin_file, "");
+  return run(new_argv[0], new_argv, cmdline.stdin_file, "", "");
 }
 
 int ld_modet::ld_hybrid_binary(compilet &compiler)

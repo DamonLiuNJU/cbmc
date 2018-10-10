@@ -17,6 +17,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR
+   "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang" OR
    "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU"
 )
     #   Ensure NDEBUG is not set for release builds
@@ -51,8 +52,6 @@ set_target_properties(
     big-int
     cbmc
     cbmc-lib
-    clobber
-    clobber-lib
     cpp
     driver
     goto-analyzer
@@ -69,8 +68,6 @@ set_target_properties(
     json
     langapi
     linking
-    miniBDD
-    mmcc
     pointer-analysis
     solvers
     test-bigint
@@ -80,6 +77,7 @@ set_target_properties(
     xml
 
     java_bytecode
+    java-models-library
     jbmc
     jbmc-lib
     janalyzer

@@ -8,7 +8,6 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include "mp_arith.h"
 
-#include <cassert>
 #include <cctype>
 #include <cstdlib>
 #include <limits>
@@ -186,6 +185,18 @@ const mp_integer binary2integer(const std::string &n, bool is_signed)
   #endif
 }
 
+/// convert an integer to bit-vector representation with given width
+const std::string integer2bv(const mp_integer &src, std::size_t width)
+{
+  return integer2binary(src, width);
+}
+
+/// convert a bit-vector representation (possibly signed) to integer
+const mp_integer bv2integer(const std::string &src, bool is_signed)
+{
+  return binary2integer(src, is_signed);
+}
+
 mp_integer::ullong_t integer2ulong(const mp_integer &n)
 {
   PRECONDITION(n.is_ulong());
@@ -195,14 +206,16 @@ mp_integer::ullong_t integer2ulong(const mp_integer &n)
 std::size_t integer2size_t(const mp_integer &n)
 {
   PRECONDITION(n>=0 && n<=std::numeric_limits<std::size_t>::max());
-  mp_integer::ullong_t ull=integer2ulong(n);
+  PRECONDITION(n.is_ulong());
+  mp_integer::ullong_t ull = n.to_ulong();
   return (std::size_t) ull;
 }
 
 unsigned integer2unsigned(const mp_integer &n)
 {
   PRECONDITION(n>=0 && n<=std::numeric_limits<unsigned>::max());
-  mp_integer::ullong_t ull=integer2ulong(n);
+  PRECONDITION(n.is_ulong());
+  mp_integer::ullong_t ull = n.to_ulong();
   return (unsigned)ull;
 }
 
@@ -236,16 +249,6 @@ mp_integer bitwise_xor(const mp_integer &a, const mp_integer &b)
   return result;
 }
 
-/// bitwise negation bitwise operations only make sense on native objects, hence
-/// the largest object size should be the largest available c++ integer size
-/// (currently long long)
-mp_integer bitwise_neg(const mp_integer &a)
-{
-  PRECONDITION(a.is_ulong());
-  ullong_t result=~a.to_ulong();
-  return result;
-}
-
 /// arithmetic left shift bitwise operations only make sense on native objects,
 /// hence the largest object size should be the largest available c++ integer
 /// size (currently long long)
@@ -255,14 +258,14 @@ mp_integer arith_left_shift(
   std::size_t true_size)
 {
   PRECONDITION(a.is_long() && b.is_ulong());
+  PRECONDITION(b <= true_size || a == 0);
+
   ullong_t shift=b.to_ulong();
-  if(shift>true_size && a!=mp_integer(0))
-    throw "shift value out of range";
 
   llong_t result=a.to_long()<<shift;
   llong_t mask=
     true_size<(sizeof(llong_t)*8) ?
-    (1L<<true_size)-1 :
+    (1LL << true_size) - 1 :
     -1;
   return result&mask;
 }
@@ -278,11 +281,10 @@ mp_integer arith_right_shift(
   PRECONDITION(a.is_long() && b.is_ulong());
   llong_t number=a.to_long();
   ullong_t shift=b.to_ulong();
-  if(shift>true_size)
-    throw "shift value out of range";
+  PRECONDITION(shift <= true_size);
 
-  llong_t sign=(1<<(true_size-1))&number;
-  llong_t pad=(sign==0) ? 0 : ~((1<<(true_size-shift))-1);
+  const llong_t sign = (1LL << (true_size - 1)) & number;
+  const llong_t pad = (sign == 0) ? 0 : ~((1LL << (true_size - shift)) - 1);
   llong_t result=(number >> shift)|pad;
   return result;
 }
@@ -296,14 +298,14 @@ mp_integer logic_left_shift(
   std::size_t true_size)
 {
   PRECONDITION(a.is_long() && b.is_ulong());
+  PRECONDITION(b <= true_size || a == 0);
+
   ullong_t shift=b.to_ulong();
-  if(shift>true_size && a!=mp_integer(0))
-    throw "shift value out of range";
   llong_t result=a.to_long()<<shift;
   if(true_size<(sizeof(llong_t)*8))
   {
-    llong_t sign=(1L<<(true_size-1))&result;
-    llong_t mask=(1L<<true_size)-1;
+    const llong_t sign = (1LL << (true_size - 1)) & result;
+    const llong_t mask = (1LL << true_size) - 1;
     // Sign-fill out-of-range bits:
     if(sign==0)
       result&=mask;
@@ -322,10 +324,9 @@ mp_integer logic_right_shift(
   std::size_t true_size)
 {
   PRECONDITION(a.is_long() && b.is_ulong());
-  ullong_t shift=b.to_ulong();
-  if(shift>true_size)
-    throw "shift value out of range";
+  PRECONDITION(b <= true_size);
 
+  ullong_t shift = b.to_ulong();
   ullong_t result=((ullong_t)a.to_long()) >> shift;
   return result;
 }
@@ -339,13 +340,13 @@ mp_integer rotate_right(
   std::size_t true_size)
 {
   PRECONDITION(a.is_ulong() && b.is_ulong());
+  PRECONDITION(b <= true_size);
+
   ullong_t number=a.to_ulong();
   ullong_t shift=b.to_ulong();
-  if(shift>true_size)
-    throw "shift value out of range";
 
   ullong_t revShift=true_size-shift;
-  ullong_t filter=1<<(true_size-1);
+  const ullong_t filter = 1ULL << (true_size - 1);
   ullong_t result=(number >> shift)|((number<<revShift)&filter);
   return result;
 }
@@ -359,13 +360,13 @@ mp_integer rotate_left(
   std::size_t true_size)
 {
   PRECONDITION(a.is_ulong() && b.is_ulong());
+  PRECONDITION(b <= true_size);
+
   ullong_t number=a.to_ulong();
   ullong_t shift=b.to_ulong();
-  if(shift>true_size)
-    throw "shift value out of range";
 
   ullong_t revShift=true_size-shift;
-  ullong_t filter=1<<(true_size-1);
+  const ullong_t filter = 1ULL << (true_size - 1);
   ullong_t result=((number<<shift)&filter)|((number&filter) >> revShift);
   return result;
 }

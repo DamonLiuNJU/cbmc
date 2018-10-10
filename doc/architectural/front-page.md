@@ -68,23 +68,35 @@ you can access it <a href=
 
 ### For contributors:
 
-* The \subpage cprover-architecture-overview "CProver Architecture Overview"
-is a single document describing the layout of the codebase and many of the
-important data structures. It probably contains more information than the
-module pages at the moment, but may be somewhat out-of-date.
+The following pages attempt to provide the information that a developer needs to
+work on CBMC, in a sensible order. In many cases they link to the appropriate
+class-level or module-level documentation.
 
-* For higher-level architectural information, each of the pages under
-  the <a href="modules.html">Modules</a>
-  link gives an overview of a directory in the CProver codebase.
+* \subpage compilation-and-development
 
-* If you already know exactly what you're looking for, the API reference
-  is generated from the codebase. You can search for classes and class
-  members in the search bar at top-right or use one of the links in the
-  sidebar.
+* \subpage background-concepts
+
+* \subpage cbmc-architecture
+
+* \subpage folder-walkthrough
+
+* \subpage code-walkthrough
+
+* \subpage other-tools
 
 * The \subpage tutorial "CBMC Developer Tutorial" helps new contributors
   to CProver to get their feet wet through a series of programming
   exercises - mostly modifying goto-instrument, and thus learning to
   manipulate the main data structures used within CBMC.
+
+For higher-level architectural information, each of the pages under
+the <a href="modules.html">Modules</a>
+link gives an overview of a directory in the CProver codebase.
+
+If you already know exactly what you're looking for, the best place
+to look is the API reference, which
+is generated from the codebase. You can search for classes and class
+members in the search bar at top-right or use one of the links in the
+sidebar.
 
 \defgroup module_hidden _hidden

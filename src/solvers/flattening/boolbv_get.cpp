@@ -71,7 +71,7 @@ exprt boolbvt::bv_get_rec(
   std::size_t offset,
   const typet &type) const
 {
-  if(type.id()==ID_symbol)
+  if(type.id() == ID_symbol_type)
     return bv_get_rec(bv, unknown, offset, ns.follow(type));
 
   std::size_t width=boolbv_width(type);
@@ -141,12 +141,9 @@ exprt boolbvt::bv_get_rec(
       exprt::operandst op;
       op.reserve(components.size());
 
-      for(struct_typet::componentst::const_iterator
-          it=components.begin();
-          it!=components.end();
-          it++)
+      for(const auto &c : components)
       {
-        const typet &subtype=ns.follow(it->type());
+        const typet &subtype = ns.follow(c.type());
         op.push_back(nil_exprt());
 
         std::size_t sub_width=boolbv_width(subtype);
@@ -222,10 +219,8 @@ exprt boolbvt::bv_get_rec(
 
   for(std::size_t bit_nr=offset; bit_nr<offset+width; bit_nr++)
   {
-    char ch;
-    if(unknown[bit_nr])
-      ch='0';
-    else
+    char ch = '0';
+    if(!unknown[bit_nr])
     {
       switch(prop.l_get(bv[bit_nr]).get_value())
       {
@@ -249,7 +244,7 @@ exprt boolbvt::bv_get_rec(
       if(int_value>=string_numbering.size())
         s=irep_idt();
       else
-        s=string_numbering[int_value.to_long()];
+        s = string_numbering[numeric_cast_v<std::size_t>(int_value)];
 
       return constant_exprt(s, type);
     }
@@ -260,17 +255,13 @@ exprt boolbvt::bv_get_rec(
       mp_integer int_value=binary2integer(value, false);
       mp_integer from=string2integer(type.get_string(ID_from));
 
-      constant_exprt value_expr(type);
-      value_expr.set_value(integer2string(int_value+from));
-      return value_expr;
+      return constant_exprt(integer2string(int_value + from), type);
     }
     break;
 
   default:
   case bvtypet::IS_C_ENUM:
-    constant_exprt value_expr(type);
-    value_expr.set_value(value);
-    return value_expr;
+    return constant_exprt(value, type);
   }
 
   return nil_exprt();

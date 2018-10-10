@@ -19,8 +19,9 @@ Author: Daniel Kroening, kroening@kroening.com
 /// that are called but for which we don't have a body (overapproximating the
 /// return value and possibly side effects).
 ///
-/// The two main APIs are \ref gen_nondet_init() and \ref object_factory(), at
-/// the bottom of the file.  Their purpose is very similar. A call to
+/// The two main APIs are \ref gen_nondet_init() and \ref object_factory()
+/// (which calls gen_nondet_init()), at the bottom of the file.
+/// A call to
 ///
 ///   gen_nondet_init(expr, code, ..., update_in_place)
 ///
@@ -28,7 +29,9 @@ Author: Daniel Kroening, kroening@kroening.com
 /// non-deterministically initialize the `expr` (which is expected to be an
 /// l-value exprt) with a primitive or reference value of type equal to or
 /// compatible with `expr.type()` -- see documentation for the argument
-/// `pointer_type_selector` for additional details.
+/// `pointer_type_selector` for additional details. gen_nondet_init() is the
+/// starting point of a recursive algorithm, and most other functions in this
+/// file are different (recursive or base) cases depending on the type of expr.
 ///
 /// The code generated mainly depends on the parameter `update_in_place`. Assume
 /// that `expr` is a reference to an object (in our IR, that means a pointer to
@@ -149,13 +152,5 @@ exprt allocate_dynamic_object_with_decl(
   const source_locationt &loc,
   const irep_idt &function_id,
   code_blockt &output_code);
-
-codet initialize_nondet_string_struct(
-  const exprt &obj,
-  const std::size_t &max_nondet_string_length,
-  const source_locationt &loc,
-  const irep_idt &function_id,
-  symbol_table_baset &symbol_table,
-  bool printable);
 
 #endif // CPROVER_JAVA_BYTECODE_JAVA_OBJECT_FACTORY_H

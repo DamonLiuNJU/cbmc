@@ -156,12 +156,12 @@ bool simplify_exprt::simplify_member(exprt &expr)
         return true;
 
       // add member offset to index
-      mp_integer offset_int=member_offset(struct_type, component_name, ns);
-      if(offset_int==-1)
+      auto offset_int = member_offset(struct_type, component_name, ns);
+      if(!offset_int.has_value())
         return true;
 
       const exprt &struct_offset=op.op1();
-      exprt member_offset=from_integer(offset_int, struct_offset.type());
+      exprt member_offset = from_integer(*offset_int, struct_offset.type());
       plus_exprt final_offset(struct_offset, member_offset);
       simplify_node(final_offset);
 
@@ -171,6 +171,25 @@ bool simplify_exprt::simplify_member(exprt &expr)
       simplify_rec(expr);
 
       return false;
+    }
+    else if(op_type.id() == ID_union)
+    {
+      // rewrite byte_extract(X, 0).member to X
+      // if the type of X is that of the member
+      const auto &byte_extract_expr = to_byte_extract_expr(op);
+      if(byte_extract_expr.offset().is_zero())
+      {
+        const union_typet &union_type = to_union_type(op_type);
+        const typet &subtype = union_type.component_type(component_name);
+
+        if(subtype == byte_extract_expr.op().type())
+        {
+          exprt tmp = byte_extract_expr.op();
+          expr.swap(tmp);
+
+          return false;
+        }
+      }
     }
   }
   else if(op.id()==ID_union && op_type.id()==ID_union)
@@ -184,17 +203,17 @@ bool simplify_exprt::simplify_member(exprt &expr)
     }
 
     // need to convert!
-    mp_integer target_size=
-      pointer_offset_size(expr.type(), ns);
+    auto target_size = pointer_offset_size(expr.type(), ns);
 
-    if(target_size!=-1)
+    if(target_size.has_value())
     {
-      mp_integer target_bits=target_size*8;
-      std::string bits=expr2bits(op, true);
+      mp_integer target_bits = target_size.value() * 8;
+      const auto bits=expr2bits(op, true);
 
-      if(mp_integer(bits.size())>=target_bits)
+      if(bits.has_value() &&
+         mp_integer(bits->size())>=target_bits)
       {
-        std::string bits_cut=std::string(bits, 0, integer2size_t(target_bits));
+        std::string bits_cut=std::string(*bits, 0, integer2size_t(target_bits));
 
         exprt tmp=bits2expr(bits_cut, expr.type(), true);
 

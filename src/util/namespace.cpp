@@ -13,8 +13,6 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <algorithm>
 
-#include <cassert>
-
 #include "prefix.h"
 #include "std_expr.h"
 #include "std_types.h"
@@ -54,7 +52,13 @@ const symbolt &namespace_baset::lookup(const tag_typet &type) const
 
 const typet &namespace_baset::follow(const typet &src) const
 {
-  if(src.id()!=ID_symbol)
+  if(src.id() == ID_union_tag)
+    return follow_tag(to_union_tag_type(src));
+
+  if(src.id() == ID_struct_tag)
+    return follow_tag(to_struct_tag_type(src));
+
+  if(src.id() != ID_symbol_type)
     return src;
 
   const symbolt *symbol = &lookup(to_symbol_type(src));
@@ -64,7 +68,7 @@ const typet &namespace_baset::follow(const typet &src) const
   {
     DATA_INVARIANT(symbol->is_type, "symbol type points to type");
 
-    if(symbol->type.id() == ID_symbol)
+    if(symbol->type.id() == ID_symbol_type)
       symbol = &lookup(to_symbol_type(symbol->type));
     else
       return symbol->type;
@@ -74,24 +78,27 @@ const typet &namespace_baset::follow(const typet &src) const
 const typet &namespace_baset::follow_tag(const union_tag_typet &src) const
 {
   const symbolt &symbol=lookup(src.get_identifier());
-  assert(symbol.is_type);
-  assert(symbol.type.id()==ID_union || symbol.type.id()==ID_incomplete_union);
+  CHECK_RETURN(symbol.is_type);
+  CHECK_RETURN(
+    symbol.type.id() == ID_union || symbol.type.id() == ID_incomplete_union);
   return symbol.type;
 }
 
 const typet &namespace_baset::follow_tag(const struct_tag_typet &src) const
 {
   const symbolt &symbol=lookup(src.get_identifier());
-  assert(symbol.is_type);
-  assert(symbol.type.id()==ID_struct || symbol.type.id()==ID_incomplete_struct);
+  CHECK_RETURN(symbol.is_type);
+  CHECK_RETURN(
+    symbol.type.id() == ID_struct || symbol.type.id() == ID_incomplete_struct);
   return symbol.type;
 }
 
 const typet &namespace_baset::follow_tag(const c_enum_tag_typet &src) const
 {
   const symbolt &symbol=lookup(src.get_identifier());
-  assert(symbol.is_type);
-  assert(symbol.type.id()==ID_c_enum || symbol.type.id()==ID_incomplete_c_enum);
+  CHECK_RETURN(symbol.is_type);
+  CHECK_RETURN(
+    symbol.type.id() == ID_c_enum || symbol.type.id() == ID_incomplete_c_enum);
   return symbol.type;
 }
 

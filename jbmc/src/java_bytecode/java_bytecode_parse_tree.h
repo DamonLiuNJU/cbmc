@@ -19,9 +19,8 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include "bytecode_info.h"
 
-class java_bytecode_parse_treet
+struct java_bytecode_parse_treet
 {
-public:
   // Disallow copy construction and copy assignment, but allow move construction
   // and move assignment.
   #ifndef _MSC_VER // Ommit this on MS VC2013 as move is not supported.
@@ -32,15 +31,12 @@ public:
   java_bytecode_parse_treet &operator=(java_bytecode_parse_treet &&) = default;
   #endif
 
-  virtual ~java_bytecode_parse_treet() = default;
-  class annotationt
+  struct annotationt
   {
-  public:
     typet type;
 
-    class element_value_pairt
+    struct element_value_pairt
     {
-    public:
       irep_idt element_name;
       exprt value;
       void output(std::ostream &) const;
@@ -58,9 +54,8 @@ public:
     const annotationst &annotations,
     const irep_idt &annotation_type_name);
 
-  class instructiont
+  struct instructiont
   {
-  public:
     source_locationt source_location;
     unsigned address;
     irep_idt statement;
@@ -68,29 +63,30 @@ public:
     argst args;
   };
 
-  class membert
+  struct membert
   {
-  public:
     std::string descriptor;
     optionalt<std::string> signature;
     irep_idt name;
     bool is_public, is_protected, is_private, is_static, is_final;
     annotationst annotations;
 
-    virtual void output(std::ostream &out) const = 0;
-
     membert():
       is_public(false), is_protected(false),
       is_private(false), is_static(false), is_final(false)
     {
     }
+
+    bool has_annotation(const irep_idt &annotation_id) const
+    {
+      return find_annotation(annotations, annotation_id).has_value();
+    }
   };
 
-  class methodt:public membert
+  struct methodt : public membert
   {
-  public:
     irep_idt base_name;
-    bool is_native, is_abstract, is_synchronized;
+    bool is_native, is_abstract, is_synchronized, is_bridge, is_varargs;
     source_locationt source_location;
 
     typedef std::vector<instructiont> instructionst;
@@ -102,9 +98,16 @@ public:
       return instructions.back();
     }
 
+    /// Java annotations that were applied to parameters of this method
+    /// \remarks Each element in the vector corresponds to the annotations on
+    /// the parameter of this method with the matching index. A parameter that
+    /// does not have annotations can have an entry in this vector that is an
+    /// empty annotationst. Trailing parameters that have no annotations may be
+    /// entirely omitted from this vector.
+    std::vector<annotationst> parameter_annotations;
+
     struct exceptiont
     {
-    public:
       exceptiont()
         : start_pc(0), end_pc(0), handler_pc(0), catch_type(irep_idt())
       {
@@ -119,9 +122,10 @@ public:
     typedef std::vector<exceptiont> exception_tablet;
     exception_tablet exception_table;
 
-    class local_variablet
+    std::vector<irep_idt> throws_exception_table;
+
+    struct local_variablet
     {
-    public:
       irep_idt name;
       std::string descriptor;
       optionalt<std::string> signature;
@@ -133,9 +137,8 @@ public:
     typedef std::vector<local_variablet> local_variable_tablet;
     local_variable_tablet local_variable_table;
 
-    class verification_type_infot
+    struct verification_type_infot
     {
-    public:
       enum verification_type_info_type { TOP, INTEGER, FLOAT, LONG, DOUBLE,
                                          ITEM_NULL, UNINITIALIZED_THIS,
                                          OBJECT, UNINITIALIZED};
@@ -145,9 +148,8 @@ public:
       u2 offset;
     };
 
-    class stack_map_table_entryt
+    struct stack_map_table_entryt
     {
-    public:
       enum stack_frame_type
       {
         SAME, SAME_LOCALS_ONE_STACK, SAME_LOCALS_ONE_STACK_EXTENDED,
@@ -170,29 +172,30 @@ public:
     typedef std::vector<stack_map_table_entryt> stack_map_tablet;
     stack_map_tablet stack_map_table;
 
-    virtual void output(std::ostream &out) const;
+    void output(std::ostream &out) const;
 
-    methodt():
-      is_native(false),
-      is_abstract(false),
-      is_synchronized(false)
+    methodt()
+      : is_native(false),
+        is_abstract(false),
+        is_synchronized(false),
+        is_bridge(false)
     {
     }
-
-    virtual ~methodt() = default;
   };
 
-  class fieldt:public membert
+  struct fieldt : public membert
   {
-  public:
-    virtual ~fieldt() = default;
-    virtual void output(std::ostream &out) const;
     bool is_enum;
+
+    void output(std::ostream &out) const;
+
+    fieldt() : is_enum(false)
+    {
+    }
   };
 
-  class classt
+  struct classt
   {
-  public:
     classt() = default;
 
     // Disallow copy construction and copy assignment, but allow move
@@ -204,7 +207,7 @@ public:
     classt &operator=(classt &&) = default;
     #endif
 
-    irep_idt name, extends;
+    irep_idt name, super_class;
     bool is_abstract=false;
     bool is_enum=false;
     bool is_public=false, is_protected=false, is_private=false;
@@ -212,7 +215,11 @@ public:
     bool is_interface = false;
     bool is_synthetic = false;
     bool is_annotation = false;
+    bool is_inner_class = false;
+    bool is_static_class = false;
+    bool is_anonymous_class = false;
     bool attribute_bootstrapmethods_read = false;
+    irep_idt outer_class; // when no outer class is set, there is no outer class
     size_t enum_elements=0;
 
     enum class method_handle_typet
@@ -222,9 +229,8 @@ public:
     };
 
     typedef std::vector<u2> u2_valuest;
-    class lambda_method_handlet
+    struct lambda_method_handlet
     {
-    public:
       method_handle_typet handle_type;
       irep_idt lambda_method_name;
       irep_idt lambda_method_ref;

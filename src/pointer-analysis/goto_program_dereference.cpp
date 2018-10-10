@@ -25,13 +25,12 @@ bool goto_program_dereferencet::has_failed_symbol(
 {
   if(expr.id()==ID_symbol)
   {
-    if(expr.get_bool("#invalid_object"))
+    if(expr.get_bool(ID_C_invalid_object))
       return false;
 
     const symbolt &ptr_symbol = ns.lookup(to_symbol_expr(expr));
 
-    const irep_idt &failed_symbol=
-      ptr_symbol.type.get("#failed_symbol");
+    const irep_idt &failed_symbol = ptr_symbol.type.get(ID_C_failed_symbol);
 
     if(failed_symbol.empty())
       return false;
@@ -54,14 +53,11 @@ bool goto_program_dereferencet::is_valid_object(
     return true; // global/static
 
   #if 0
-  if(valid_local_variables->find(symbol.name)!=
-     valid_local_variables->end())
-    return true; // valid local
+  return valid_local_variables->find(symbol.name)!=
+     valid_local_variables->end(); // valid local
   #else
   return true;
   #endif
-
-  return false;
 }
 
 void goto_program_dereferencet::dereference_failure(
@@ -310,7 +306,7 @@ void goto_program_dereferencet::dereference_instruction(
   }
   else if(i.is_function_call())
   {
-    code_function_callt &function_call=to_code_function_call(to_code(i.code));
+    code_function_callt &function_call = to_code_function_call(i.code);
 
     if(function_call.lhs().is_not_nil())
       dereference_expr(

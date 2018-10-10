@@ -19,6 +19,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <list>
 #include <map>
 #include <queue>
+#include <sstream>
 #include <stack>
 #include <vector>
 
@@ -59,6 +60,39 @@ public:
   void erase_out(node_indext n)
   {
     out.erase(n);
+  }
+
+private:
+  /// \brief Node with attributes suitable for Graphviz DOT format
+  ///
+  /// Derived types may override this function to produce more informative DOT
+  /// diagrams than the default implementation, which displays only the node
+  /// index. The return value should be a list of node attributes within square
+  /// brackets that can be parsed by `dot`. Here is a sample implementation for
+  /// a fictional node type with `is_evil()` and `is_pink()` functions:
+  ///
+  ///     std::stringstream ss;
+  ///     ss << "[shape=\"" << is_evil() ? "box" : "diamond"
+  ///        << "\", color=\"" << is_pink() ? "#e91e63" : "#9c27b0"
+  ///        << "\", label=\"this is node " << std::to_string(idx)
+  ///        << "\"]";
+  ///     return ss.str();
+  ///
+  virtual std::string dot_attributes(const node_indext &idx) const
+  {
+    return "";
+  }
+
+public:
+  std::string pretty(const node_indext &idx) const
+  {
+    std::stringstream ss;
+    ss << std::to_string(idx) << " " << dot_attributes(idx);
+    return ss.str();
+  }
+
+  virtual ~graph_nodet()
+  {
   }
 };
 
@@ -252,6 +286,16 @@ public:
   std::vector<node_indext>
   get_reachable(const std::vector<node_indext> &src, bool forwards) const;
 
+  void disconnect_unreachable(node_indext src);
+  void disconnect_unreachable(const std::vector<node_indext> &src);
+
+  std::vector<typename N::node_indext>
+  depth_limited_search(typename N::node_indext src, std::size_t limit) const;
+
+  std::vector<typename N::node_indext> depth_limited_search(
+    std::vector<typename N::node_indext> &src,
+    std::size_t limit) const;
+
   void make_chordal();
 
   // return value: number of connected subgraphs
@@ -275,6 +319,11 @@ public:
     std::function<void(const node_indext &)> f) const;
 
 protected:
+  std::vector<typename N::node_indext> depth_limited_search(
+    std::vector<typename N::node_indext> &src,
+    std::size_t limit,
+    std::vector<bool> &visited) const;
+
   class tarjant
   {
   public:
@@ -311,8 +360,8 @@ protected:
 template<class N>
 void grapht<N>::add_undirected_edge(node_indext a, node_indext b)
 {
-  assert(a<nodes.size());
-  assert(b<nodes.size());
+  PRECONDITION(a < nodes.size());
+  PRECONDITION(b < nodes.size());
   nodet &na=nodes[a];
   nodet &nb=nodes[b];
   na.add_out(b);
@@ -448,7 +497,8 @@ void grapht<N>::shortest_path(
     path.push_front(dest);
     if(distance[dest]==0 ||
        previous[dest]==src) break; // we are there
-    assert(dest!=previous[dest]);
+    INVARIANT(
+      dest != previous[dest], "loops cannot be part of the shortest path");
     dest=previous[dest];
   }
 }
@@ -459,6 +509,51 @@ void grapht<N>::visit_reachable(node_indext src)
   std::vector<node_indext> reachable = get_reachable(src, true);
   for(const auto index : reachable)
     nodes[index].visited = true;
+}
+
+/// Removes any edges between nodes in a graph that are unreachable from
+/// a given start node. Used for computing cone of influence,
+/// by disconnecting unreachable nodes and then performing backwards
+/// reachability.
+/// Note nodes are not actually removed from the vector nodes, because
+/// this requires renumbering node indices. This copies the way nodes
+/// are "removed" in make_chordal.
+/// \param src: start node
+template <class N>
+void grapht<N>::disconnect_unreachable(node_indext src)
+{
+  const std::vector<node_indext> source_nodes(1, src);
+  disconnect_unreachable(source_nodes);
+}
+
+/// Removes any edges between nodes in a graph that are unreachable
+/// from a vector of start nodes.
+/// \param src: vector of indices of start nodes
+template <class N>
+void grapht<N>::disconnect_unreachable(const std::vector<node_indext> &src)
+{
+  std::vector<node_indext> reachable = get_reachable(src, true);
+  std::sort(reachable.begin(), reachable.end());
+  std::size_t reachable_idx = 0;
+  for(std::size_t i = 0; i < nodes.size(); i++)
+  {
+    // Holds since `reachable` contains node indices (i.e., all elements are
+    // smaller than `nodes.size()`), `reachable` is sorted, indices from `0` to
+    // `nodes.size()-1` are iterated over by variable i in order, and
+    // `reachable_idx` is only incremented when `i == reachable[reachable_idx]`
+    // holds.
+    INVARIANT(
+      reachable_idx >= reachable.size() || i <= reachable[reachable_idx],
+      "node index i is smaller or equal to the node index at "
+      "reachable[reachable_idx], when reachable_idx is within bounds");
+
+    if(reachable_idx >= reachable.size())
+      remove_edges(i);
+    else if(i == reachable[reachable_idx])
+      reachable_idx++;
+    else
+      remove_edges(i);
+  }
 }
 
 /// Add to `set`, nodes that are reachable from `set`.
@@ -544,6 +639,88 @@ std::vector<typename N::node_indext> grapht<N>::get_reachable(
   return result;
 }
 
+/// Run recursive depth-limited search on the graph, starting
+/// from multiple source nodes, to find the nodes reachable within n steps.
+/// This function initialises the search.
+/// \param src The node to start the search from.
+/// \param limit  limit on steps
+/// \return a vector of reachable node indices
+template <class N>
+std::vector<typename N::node_indext> grapht<N>::depth_limited_search(
+  const typename N::node_indext src,
+  std::size_t limit) const
+{
+  std::vector<node_indext> start_vector(1, src);
+  return depth_limited_search(start_vector, limit);
+}
+
+/// Run recursive depth-limited search on the graph, starting
+/// from multiple source nodes, to find the nodes reachable within n steps.
+/// This function initialises the search.
+/// \param src The nodes to start the search from.
+/// \param limit  limit on steps
+/// \return a vector of reachable node indices
+template <class N>
+std::vector<typename N::node_indext> grapht<N>::depth_limited_search(
+  std::vector<typename N::node_indext> &src,
+  std::size_t limit) const
+{
+  std::vector<bool> visited(nodes.size(), false);
+
+  for(const auto &node : src)
+  {
+    PRECONDITION(node < nodes.size());
+    visited[node] = true;
+  }
+
+  return depth_limited_search(src, limit, visited);
+}
+
+/// Run recursive depth-limited search on the graph, starting
+// from multiple source nodes, to find the nodes reachable within n steps
+/// \param src The nodes to start the search from.
+/// \param limit  limit on steps
+/// \param visited vector of booleans indicating whether a node has been visited
+/// \return a vector of reachable node indices
+template <class N>
+std::vector<typename N::node_indext> grapht<N>::depth_limited_search(
+  std::vector<typename N::node_indext> &src,
+  std::size_t limit,
+  std::vector<bool> &visited) const
+{
+  if(limit == 0)
+    return src;
+
+  std::vector<node_indext> next_ring;
+
+  for(const auto &n : src)
+  {
+    for(const auto &o : nodes[n].out)
+    {
+      if(!visited[o.first])
+      {
+        next_ring.push_back(o.first);
+        visited[o.first] = true;
+      }
+    }
+  }
+
+  if(next_ring.empty())
+    return src;
+
+  limit--;
+
+  for(const auto &succ : depth_limited_search(next_ring, limit, visited))
+    src.push_back(succ);
+
+  return src;
+}
+
+/// Find connected subgraphs in an undirected graph.
+/// \param [out] subgraph_nr: will be resized to graph.size() and populated
+///   to map node indices onto subgraph numbers. The subgraph numbers are dense,
+///   in the range 0 - (number of subgraphs - 1)
+/// \return Number of subgraphs found.
 template<class N>
 std::size_t grapht<N>::connected_subgraphs(
   std::vector<node_indext> &subgraph_nr)
@@ -575,12 +752,11 @@ std::size_t grapht<N>::connected_subgraphs(
 
       const nodet &node=nodes[n];
 
-      for(typename edgest::const_iterator
-          it=node.out.begin();
-          it!=node.out.end();
-          it++)
-        if(!visited[*it])
-          s.push(*it);
+      for(const auto &o : node.out)
+      {
+        if(!visited[o.first])
+          s.push(o.first);
+      }
     }
 
     nr++;
@@ -620,7 +796,9 @@ void grapht<N>::tarjan(tarjant &t, node_indext v) const
   {
     while(true)
     {
-      assert(!t.scc_stack.empty());
+      INVARIANT(
+        !t.scc_stack.empty(),
+        "stack of strongly connected components should have another component");
       node_indext vp=t.scc_stack.top();
       t.scc_stack.pop();
       t.in_scc[vp]=false;
@@ -657,6 +835,10 @@ std::size_t grapht<N>::SCCs(std::vector<node_indext> &subgraph_nr) const
   return t.scc_count;
 }
 
+/// Ensure a graph is chordal (contains no 4+-cycles without an edge crossing
+/// the cycle) by adding extra edges. Note this adds more edges than are
+/// required, including to acyclic graphs or acyclic subgraphs of cyclic graphs,
+/// but does at least ensure the graph is not chordal.
 template<class N>
 void grapht<N>::make_chordal()
 {
@@ -671,20 +853,13 @@ void grapht<N>::make_chordal()
     const nodet &n=tmp[i];
 
     // connect all the nodes in n.out with each other
-
-    for(typename edgest::const_iterator
-        it1=n.out.begin();
-        it1!=n.out.end();
-        it1++)
-      for(typename edgest::const_iterator
-          it2=n.out.begin();
-          it2!=n.out.end();
-          it2++)
+    for(const auto &o1 : n.out)
+      for(const auto &o2 : n.out)
       {
-        if(*it1!=*it2)
+        if(o1.first!=o2.first)
         {
-          tmp.add_undirected_edge(*it1, *it2);
-          this->add_undirected_edge(*it1, *it2);
+          tmp.add_undirected_edge(o1.first, o2.first);
+          this->add_undirected_edge(o1.first, o2.first);
         }
       }
 
@@ -747,9 +922,11 @@ void output_dot_generic(
   const std::function<
     void(const node_index_type &, std::function<void(const node_index_type &)>)>
     &for_each_succ,
-  const std::function<std::string(const node_index_type &)> node_to_string)
+  const std::function<std::string(const node_index_type &)> node_to_string,
+  const std::function<std::string(const node_index_type &)> node_to_pretty)
 {
   for_each_node([&](const node_index_type &i) {
+    out << node_to_pretty(i) << ";\n";
     for_each_succ(i, [&](const node_index_type &n) {
       out << node_to_string(i) << " -> " << node_to_string(n) << '\n';
     });
@@ -784,7 +961,7 @@ template <class N>
 void grapht<N>::output_dot(std::ostream &out) const
 {
   const auto for_each_node =
-    [&](const std::function<void(const node_indext &)> &f) {
+    [this](const std::function<void(const node_indext &)> &f) {
       for(node_indext i = 0; i < nodes.size(); ++i)
         f(i);
     };
@@ -795,7 +972,11 @@ void grapht<N>::output_dot(std::ostream &out) const
   };
 
   const auto to_string = [](const node_indext &i) { return std::to_string(i); };
-  output_dot_generic<node_indext>(out, for_each_node, for_each_succ, to_string);
+  const auto to_pretty_string = [this](const node_indext &i) {
+    return nodes[i].pretty(i);
+  };
+  output_dot_generic<node_indext>(
+    out, for_each_node, for_each_succ, to_string, to_pretty_string);
 }
 
 #endif // CPROVER_UTIL_GRAPH_H

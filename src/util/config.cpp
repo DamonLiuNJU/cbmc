@@ -10,15 +10,16 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <cstdlib>
 
-#include "namespace.h"
-#include "symbol_table.h"
 #include "arith_tools.h"
 #include "cmdline.h"
+#include "cprover_prefix.h"
+#include "exception_utils.h"
+#include "namespace.h"
 #include "simplify_expr.h"
 #include "std_expr.h"
-#include "cprover_prefix.h"
 #include "string2int.h"
 #include "string_utils.h"
+#include "symbol_table.h"
 
 configt config;
 
@@ -155,11 +156,11 @@ void configt::ansi_ct::set_arch_spec_i386()
   switch(mode)
   {
   case flavourt::GCC:
-  case flavourt::APPLE:
+  case flavourt::CLANG:
     defines.push_back("i386");
     defines.push_back("__i386");
     defines.push_back("__i386__");
-    if(mode==flavourt::APPLE)
+    if(mode == flavourt::CLANG)
       defines.push_back("__LITTLE_ENDIAN__");
     break;
 
@@ -188,14 +189,15 @@ void configt::ansi_ct::set_arch_spec_x86_64()
   switch(mode)
   {
   case flavourt::GCC:
-  case flavourt::APPLE:
+  case flavourt::CLANG:
     defines.push_back("__LP64__");
     defines.push_back("__x86_64");
     defines.push_back("__x86_64__");
     defines.push_back("_LP64");
     defines.push_back("__amd64__");
     defines.push_back("__amd64");
-    if(mode==flavourt::APPLE)
+
+    if(os == ost::OS_MACOS)
       defines.push_back("__LITTLE_ENDIAN__");
     break;
 
@@ -233,13 +235,13 @@ void configt::ansi_ct::set_arch_spec_power(const irep_idt &subarch)
   switch(mode)
   {
   case flavourt::GCC:
-  case flavourt::APPLE:
+  case flavourt::CLANG:
     defines.push_back("__powerpc");
     defines.push_back("__powerpc__");
     defines.push_back("__POWERPC__");
     defines.push_back("__ppc__");
 
-    if(mode==flavourt::APPLE)
+    if(os == ost::OS_MACOS)
       defines.push_back("__BIG_ENDIAN__");
 
     if(subarch!="powerpc")
@@ -295,7 +297,7 @@ void configt::ansi_ct::set_arch_spec_arm(const irep_idt &subarch)
   switch(mode)
   {
   case flavourt::GCC:
-  case flavourt::APPLE:
+  case flavourt::CLANG:
     if(subarch=="arm64")
       defines.push_back("__aarch64__");
     else
@@ -336,7 +338,7 @@ void configt::ansi_ct::set_arch_spec_alpha()
     defines.push_back("_M_ALPHA");
     break;
 
-  case flavourt::APPLE:
+  case flavourt::CLANG:
   case flavourt::CODEWARRIOR:
   case flavourt::ARM:
   case flavourt::ANSI:
@@ -386,7 +388,7 @@ void configt::ansi_ct::set_arch_spec_mips(const irep_idt &subarch)
     UNREACHABLE; // not supported by Visual Studio
     break;
 
-  case flavourt::APPLE:
+  case flavourt::CLANG:
   case flavourt::CODEWARRIOR:
   case flavourt::ARM:
   case flavourt::ANSI:
@@ -415,7 +417,7 @@ void configt::ansi_ct::set_arch_spec_s390()
     UNREACHABLE; // not supported by Visual Studio
     break;
 
-  case flavourt::APPLE:
+  case flavourt::CLANG:
   case flavourt::CODEWARRIOR:
   case flavourt::ARM:
   case flavourt::ANSI:
@@ -443,7 +445,7 @@ void configt::ansi_ct::set_arch_spec_s390x()
     UNREACHABLE; // not supported by Visual Studio
     break;
 
-  case flavourt::APPLE:
+  case flavourt::CLANG:
   case flavourt::CODEWARRIOR:
   case flavourt::ARM:
   case flavourt::ANSI:
@@ -483,7 +485,7 @@ void configt::ansi_ct::set_arch_spec_sparc(const irep_idt &subarch)
     UNREACHABLE; // not supported by Visual Studio
     break;
 
-  case flavourt::APPLE:
+  case flavourt::CLANG:
   case flavourt::CODEWARRIOR:
   case flavourt::ARM:
   case flavourt::ANSI:
@@ -514,7 +516,7 @@ void configt::ansi_ct::set_arch_spec_ia64()
     defines.push_back("_M_IA64");
     break;
 
-  case flavourt::APPLE:
+  case flavourt::CLANG:
   case flavourt::CODEWARRIOR:
   case flavourt::ARM:
   case flavourt::ANSI:
@@ -549,7 +551,7 @@ void configt::ansi_ct::set_arch_spec_x32()
     UNREACHABLE; // not supported by Visual Studio
     break;
 
-  case flavourt::APPLE:
+  case flavourt::CLANG:
   case flavourt::CODEWARRIOR:
   case flavourt::ARM:
   case flavourt::ANSI:
@@ -603,7 +605,7 @@ void configt::ansi_ct::set_arch_spec_hppa()
     UNREACHABLE; // not supported by Visual Studio
     break;
 
-  case flavourt::APPLE:
+  case flavourt::CLANG:
   case flavourt::CODEWARRIOR:
   case flavourt::ARM:
   case flavourt::ANSI:
@@ -633,7 +635,7 @@ void configt::ansi_ct::set_arch_spec_sh4()
     UNREACHABLE; // not supported by Visual Studio
     break;
 
-  case flavourt::APPLE:
+  case flavourt::CLANG:
   case flavourt::CODEWARRIOR:
   case flavourt::ARM:
   case flavourt::ANSI:
@@ -890,7 +892,7 @@ bool configt::set(const cmdlinet &cmdline)
   {
     ansi_c.lib=configt::ansi_ct::libt::LIB_FULL;
     ansi_c.os=configt::ansi_ct::ost::OS_MACOS;
-    ansi_c.mode=ansi_ct::flavourt::APPLE;
+    ansi_c.mode = ansi_ct::flavourt::CLANG;
     ansi_c.preprocessor=ansi_ct::preprocessort::CLANG;
   }
   else if(os=="linux" || os=="solaris")
@@ -904,7 +906,7 @@ bool configt::set(const cmdlinet &cmdline)
   {
     ansi_c.lib=configt::ansi_ct::libt::LIB_FULL;
     ansi_c.os=configt::ansi_ct::ost::OS_LINUX;
-    ansi_c.mode=ansi_ct::flavourt::GCC;
+    ansi_c.mode=ansi_ct::flavourt::CLANG;
     ansi_c.preprocessor=ansi_ct::preprocessort::CLANG;
   }
   else
@@ -944,20 +946,42 @@ bool configt::set(const cmdlinet &cmdline)
   // the same architecture and OS that we are verifying for.
   if(arch==this_arch && os==this_os)
   {
-    assert(ansi_c.int_width==sizeof(int)*8);
-    assert(ansi_c.long_int_width==sizeof(long)*8);
-    assert(ansi_c.bool_width==sizeof(bool)*8);
-    assert(ansi_c.char_width==sizeof(char)*8);
-    assert(ansi_c.short_int_width==sizeof(short)*8);
-    assert(ansi_c.long_long_int_width==sizeof(long long)*8);
-    assert(ansi_c.pointer_width==sizeof(void *)*8);
-    assert(ansi_c.single_width==sizeof(float)*8);
-    assert(ansi_c.double_width==sizeof(double)*8);
-    assert(ansi_c.char_is_unsigned==(static_cast<char>(255)==255));
+    INVARIANT(
+      ansi_c.int_width == sizeof(int) * 8,
+      "int width shall be equal to the system int width");
+    INVARIANT(
+      ansi_c.long_int_width == sizeof(long) * 8,
+      "long int width shall be equal to the system long int width");
+    INVARIANT(
+      ansi_c.bool_width == sizeof(bool) * 8,
+      "bool width shall be equal to the system bool width");
+    INVARIANT(
+      ansi_c.char_width == sizeof(char) * 8,
+      "char width shall be equal to the system char width");
+    INVARIANT(
+      ansi_c.short_int_width == sizeof(short) * 8,
+      "short int width shall be equal to the system short int width");
+    INVARIANT(
+      ansi_c.long_long_int_width == sizeof(long long) * 8,
+      "long long int width shall be equal to the system long long int width");
+    INVARIANT(
+      ansi_c.pointer_width == sizeof(void *) * 8,
+      "pointer width shall be equal to the system pointer width");
+    INVARIANT(
+      ansi_c.single_width == sizeof(float) * 8,
+      "float width shall be equal to the system float width");
+    INVARIANT(
+      ansi_c.double_width == sizeof(double) * 8,
+      "double width shall be equal to the system double width");
+    INVARIANT(
+      ansi_c.char_is_unsigned == (static_cast<char>(255) == 255),
+      "char_is_unsigned flag shall indicate system char unsignedness");
 
     #ifndef _WIN32
     // On Windows, long double width varies by compiler
-    assert(ansi_c.long_double_width==sizeof(long double)*8);
+    INVARIANT(
+      ansi_c.long_double_width == sizeof(long double) * 8,
+      "long double width shall be equal to the system long double width");
     #endif
   }
 
@@ -1025,14 +1049,17 @@ bool configt::set(const cmdlinet &cmdline)
   {
     bv_encoding.object_bits=
       unsafe_string2unsigned(cmdline.get_value("object-bits"));
-    bv_encoding.is_object_bits_default=false;
 
     if(!(0<bv_encoding.object_bits &&
          bv_encoding.object_bits<ansi_c.pointer_width))
     {
-      throw "object-bits must be positive and less than the pointer width ("+
-        std::to_string(ansi_c.pointer_width)+") ";
+      throw invalid_command_line_argument_exceptiont(
+        "object-bits must be positive and less than the pointer width (" +
+          std::to_string(ansi_c.pointer_width) + ") ",
+        "--object_bits");
     }
+
+    bv_encoding.is_object_bits_default = false;
   }
 
   return false;
@@ -1068,21 +1095,17 @@ static irep_idt string_from_ns(
   const irep_idt id=CPROVER_PREFIX "architecture_"+what;
   const symbolt *symbol;
 
-  if(ns.lookup(id, symbol))
-    throw "failed to find "+id2string(id);
+  const bool not_found = ns.lookup(id, symbol);
+  INVARIANT(!not_found, id2string(id) + " must be in namespace");
 
   const exprt &tmp=symbol->value;
 
-  if(tmp.id()!=ID_address_of ||
-     tmp.operands().size()!=1 ||
-     tmp.op0().id()!=ID_index ||
-     tmp.op0().operands().size()!=2 ||
-     tmp.op0().op0().id()!=ID_string_constant)
-  {
-    throw
-      "symbol table configuration entry `"+id2string(id)+
-      "' is not a string constant";
-  }
+  INVARIANT(
+    tmp.id() == ID_address_of && tmp.operands().size() == 1 &&
+      tmp.op0().id() == ID_index && tmp.op0().operands().size() == 2 &&
+      tmp.op0().op0().id() == ID_string_constant,
+    "symbol table configuration entry `" + id2string(id) +
+      "' must be a string constant");
 
   return tmp.op0().op0().get(ID_value);
 }
@@ -1094,21 +1117,24 @@ static unsigned unsigned_from_ns(
   const irep_idt id=CPROVER_PREFIX "architecture_"+what;
   const symbolt *symbol;
 
-  if(ns.lookup(id, symbol))
-    throw "failed to find "+id2string(id);
+  const bool not_found = ns.lookup(id, symbol);
+  INVARIANT(!not_found, id2string(id) + " must be in namespace");
 
   exprt tmp=symbol->value;
   simplify(tmp, ns);
 
-  if(tmp.id()!=ID_constant)
-    throw
-      "symbol table configuration entry `"+id2string(id)+"' is not a constant";
+  INVARIANT(
+    tmp.id() == ID_constant,
+    "symbol table configuration entry `" + id2string(id) +
+      "' must be a constant");
 
   mp_integer int_value;
 
-  if(to_integer(to_constant_expr(tmp), int_value))
-    throw
-      "failed to convert symbol table configuration entry `"+id2string(id)+"'";
+  const bool error = to_integer(to_constant_expr(tmp), int_value);
+  INVARIANT(
+    !error,
+    "symbol table configuration entry `" + id2string(id) +
+      "' must be convertible to mp_integer");
 
   return integer2unsigned(int_value);
 }
@@ -1217,17 +1243,17 @@ irep_idt configt::this_architecture()
 
   #ifdef __alpha__
   this_arch="alpha";
-  #elif __armel__
+  #elif defined(__armel__)
   this_arch="armel";
-  #elif __aarch64__
+  #elif defined(__aarch64__)
   this_arch="arm64";
-  #elif __arm__
+  #elif defined(__arm__)
     #ifdef __ARM_PCS_VFP
     this_arch="armhf"; // variant of arm with hard float
     #else
     this_arch="arm";
     #endif
-  #elif __mipsel__
+  #elif defined(__mipsel__)
     #if _MIPS_SIM==_ABIO32
     this_arch="mipsel";
     #elif _MIPS_SIM==_ABIN32
@@ -1235,7 +1261,7 @@ irep_idt configt::this_architecture()
     #else
     this_arch="mips64el";
     #endif
-  #elif __mips__
+  #elif defined(__mips__)
     #if _MIPS_SIM==_ABIO32
     this_arch="mips";
     #elif _MIPS_SIM==_ABIN32
@@ -1243,7 +1269,7 @@ irep_idt configt::this_architecture()
     #else
     this_arch="mips64";
     #endif
-  #elif __powerpc__
+  #elif defined(__powerpc__)
     #if defined(__ppc64__) || defined(__PPC64__) || \
         defined(__powerpc64__) || defined(__POWERPC64__)
       #ifdef __LITTLE_ENDIAN__
@@ -1254,33 +1280,33 @@ irep_idt configt::this_architecture()
     #else
     this_arch="powerpc";
     #endif
-  #elif __sparc__
+  #elif defined(__sparc__)
     #ifdef __arch64__
     this_arch="sparc64";
     #else
     this_arch="sparc";
     #endif
-  #elif __ia64__
+  #elif defined(__ia64__)
   this_arch="ia64";
-  #elif __s390x__
+  #elif defined(__s390x__)
   this_arch="s390x";
-  #elif __s390__
+  #elif defined(__s390__)
   this_arch="s390";
-  #elif __x86_64__
+  #elif defined(__x86_64__)
     #ifdef __ILP32__
     this_arch="x32"; // variant of x86_64 with 32-bit pointers
     #else
     this_arch="x86_64";
     #endif
-  #elif __i386__
+  #elif defined(__i386__)
   this_arch="i386";
-  #elif _WIN64
+  #elif defined(_WIN64)
   this_arch="x86_64";
-  #elif _WIN32
+  #elif defined(_WIN32)
   this_arch="i386";
-  #elif __hppa__
+  #elif defined(__hppa__)
   this_arch="hppa";
-  #elif __sh__
+  #elif defined(__sh__)
   this_arch="sh4";
   #else
   // something new and unknown!
@@ -1300,8 +1326,8 @@ void configt::set_classpath(const std::string &cp)
   const char cp_separator = ':';
 #endif
 
-  std::vector<std::string> class_path;
-  split_string(cp, cp_separator, class_path);
+  std::vector<std::string> class_path =
+    split_string(cp, cp_separator);
   java.classpath.insert(
     java.classpath.end(), class_path.begin(), class_path.end());
 }

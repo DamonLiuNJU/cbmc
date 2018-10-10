@@ -989,7 +989,7 @@ void value_set_fit::assign(
         c_it++, no++)
     {
       const typet &subtype=c_it->type();
-      const irep_idt &name=c_it->get(ID_name);
+      const irep_idt &name = c_it->get_name();
 
       // ignore methods
       if(subtype.id()==ID_code)
@@ -1422,8 +1422,7 @@ void value_set_fit::apply_code(
     // shouldn't be here
     UNREACHABLE;
   }
-  else if(statement==ID_assign ||
-          statement==ID_init)
+  else if(statement==ID_assign)
   {
     if(code.operands().size()!=2)
       throw "assignment expected to have two operands";

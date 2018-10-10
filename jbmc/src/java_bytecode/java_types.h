@@ -93,7 +93,7 @@ inline annotated_typet &to_annotated_type(typet &type)
 }
 
 template <>
-inline bool can_cast_type<annotated_typet>(const typet &type)
+inline bool can_cast_type<annotated_typet>(const typet &)
 {
   return true;
 }
@@ -111,7 +111,57 @@ class java_class_typet:public class_typet
     return set(ID_access, access);
   }
 
-  bool get_final()
+  const bool get_is_inner_class() const
+  {
+    return get_bool(ID_is_inner_class);
+  }
+
+  void set_is_inner_class(const bool &is_inner_class)
+  {
+    return set(ID_is_inner_class, is_inner_class);
+  }
+
+  const irep_idt &get_outer_class() const
+  {
+    return get(ID_outer_class);
+  }
+
+  void set_outer_class(const irep_idt &outer_class)
+  {
+    return set(ID_outer_class, outer_class);
+  }
+
+  const irep_idt &get_super_class() const
+  {
+    return get(ID_super_class);
+  }
+
+  void set_super_class(const irep_idt &super_class)
+  {
+    return set(ID_super_class, super_class);
+  }
+
+  const bool get_is_static_class() const
+  {
+    return get_bool(ID_is_static);
+  }
+
+  void set_is_static_class(const bool &is_static_class)
+  {
+    return set(ID_is_static, is_static_class);
+  }
+
+  const bool get_is_anonymous_class() const
+  {
+    return get_bool(ID_is_anonymous);
+  }
+
+  void set_is_anonymous_class(const bool &is_anonymous_class)
+  {
+    return set(ID_is_anonymous, is_anonymous_class);
+  }
+
+  bool get_final() const
   {
     return get_bool(ID_final);
   }
@@ -158,6 +208,20 @@ class java_class_typet:public class_typet
     return type_checked_cast<annotated_typet>(
       static_cast<typet &>(*this)).get_annotations();
   }
+
+  /// Get the name of the struct, which can be used to look up its symbol
+  /// in the symbol table.
+  const irep_idt &get_name() const
+  {
+    return get(ID_name);
+  }
+
+  /// Set the name of the struct, which can be used to look up its symbol
+  /// in the symbol table.
+  void set_name(const irep_idt &name)
+  {
+    set(ID_name, name);
+  }
 };
 
 inline const java_class_typet &to_java_class_type(const typet &type)
@@ -178,6 +242,92 @@ inline bool can_cast_type<java_class_typet>(const typet &type)
   return can_cast_type<class_typet>(type);
 }
 
+class java_method_typet : public code_typet
+{
+public:
+  using code_typet::parameterst;
+  using code_typet::parametert;
+
+  /// Constructs a new code type, i.e. method type
+  /// \param _parameters: the vector of method parameters
+  /// \param _return_type: the return type
+  java_method_typet(parameterst &&_parameters, typet &&_return_type)
+    : code_typet(std::move(_parameters), std::move(_return_type))
+  {
+    set(ID_C_java_method_type, true);
+  }
+
+  /// Constructs a new code type, i.e. method type
+  /// \param _parameters: the vector of method parameters
+  /// \param _return_type: the return type
+  java_method_typet(parameterst &&_parameters, const typet &_return_type)
+    : code_typet(std::move(_parameters), _return_type)
+  {
+    set(ID_C_java_method_type, true);
+  }
+
+  const std::vector<irep_idt> throws_exceptions() const
+  {
+    std::vector<irep_idt> exceptions;
+    for(const auto &e : find(ID_exceptions_thrown_list).get_sub())
+      exceptions.push_back(e.id());
+    return exceptions;
+  }
+
+  void add_throws_exceptions(irep_idt exception)
+  {
+    add(ID_exceptions_thrown_list).get_sub().push_back(irept(exception));
+  }
+
+  bool get_is_final() const
+  {
+    return get_bool(ID_final);
+  }
+
+  void set_is_final(bool is_final)
+  {
+    set(ID_final, is_final);
+  }
+
+  bool get_native() const
+  {
+    return get_bool(ID_is_native_method);
+  }
+
+  void set_native(bool is_native)
+  {
+    set(ID_is_native_method, is_native);
+  }
+
+  bool get_is_varargs() const
+  {
+    return get_bool(ID_is_varargs_method);
+  }
+
+  void set_is_varargs(bool is_varargs)
+  {
+    set(ID_is_varargs_method, is_varargs);
+  }
+};
+
+template <>
+inline bool can_cast_type<java_method_typet>(const typet &type)
+{
+  return type.id() == ID_code && type.get_bool(ID_C_java_method_type);
+}
+
+inline const java_method_typet &to_java_method_type(const typet &type)
+{
+  PRECONDITION(can_cast_type<java_method_typet>(type));
+  return static_cast<const java_method_typet &>(type);
+}
+
+inline java_method_typet &to_java_method_type(typet &type)
+{
+  PRECONDITION(can_cast_type<java_method_typet>(type));
+  return static_cast<java_method_typet &>(type);
+}
+
 typet java_int_type();
 typet java_long_type();
 typet java_short_type();
@@ -186,24 +336,16 @@ typet java_char_type();
 typet java_float_type();
 typet java_double_type();
 typet java_boolean_type();
+typet java_void_type();
 reference_typet java_reference_type(const typet &subtype);
 reference_typet java_lang_object_type();
 symbol_typet java_classname(const std::string &);
 
 reference_typet java_array_type(const char subtype);
-typet java_array_element_type(const symbol_typet &array_type);
-
-bool is_reference_type(char t);
-
-// i  integer
-// l  long
-// s  short
-// b  byte
-// c  character
-// f  float
-// d  double
-// z  boolean
-// a  reference
+const typet &java_array_element_type(const symbol_typet &array_symbol);
+typet &java_array_element_type(symbol_typet &array_symbol);
+bool is_java_array_type(const typet &type);
+bool is_multidim_java_array_type(const typet &type);
 
 typet java_type_from_char(char t);
 typet java_type_from_string(
@@ -341,11 +483,17 @@ public:
   }
 };
 
+template <>
+inline bool can_cast_type<java_generic_typet>(const typet &type)
+{
+  return is_reference(type) && type.get_bool(ID_C_java_generic_type);
+}
+
 /// \param type: the type to check
 /// \return true if type is java type containing with generics, e.g., List<T>
 inline bool is_java_generic_type(const typet &type)
 {
-  return type.get_bool(ID_C_java_generic_type);
+  return can_cast_type<java_generic_typet>(type);
 }
 
 /// \param type: source type
@@ -353,9 +501,7 @@ inline bool is_java_generic_type(const typet &type)
 inline const java_generic_typet &to_java_generic_type(
   const typet &type)
 {
-  PRECONDITION(
-    type.id()==ID_pointer &&
-    is_java_generic_type(type));
+  PRECONDITION(can_cast_type<java_generic_typet>(type));
   return static_cast<const java_generic_typet &>(type);
 }
 
@@ -363,9 +509,7 @@ inline const java_generic_typet &to_java_generic_type(
 /// \return cast of type into java type with generics
 inline java_generic_typet &to_java_generic_type(typet &type)
 {
-  PRECONDITION(
-    type.id()==ID_pointer &&
-    is_java_generic_type(type));
+  PRECONDITION(can_cast_type<java_generic_typet>(type));
   return static_cast<java_generic_typet &>(type);
 }
 
@@ -648,6 +792,6 @@ std::string gather_full_class_name(const std::string &);
 std::string pretty_java_type(const typet &);
 
 // pretty signature for methods
-std::string pretty_signature(const code_typet &);
+std::string pretty_signature(const java_method_typet &);
 
 #endif // CPROVER_JAVA_BYTECODE_JAVA_TYPES_H

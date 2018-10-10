@@ -87,6 +87,10 @@ reference_typet java_lang_object_type()
   return java_reference_type(symbol_typet("java::java.lang.Object"));
 }
 
+/// Construct an array pointer type. It is a pointer to a symbol with identifier
+/// java::array[]. Its ID_element_type is set to the corresponding primitive
+/// type, or void* for arrays of references.
+/// \param subtype Character indicating the type of array
 reference_typet java_array_type(const char subtype)
 {
   std::string subtype_str;
@@ -115,35 +119,73 @@ reference_typet java_array_type(const char subtype)
 
   symbol_typet symbol_type("java::"+id2string(class_name));
   symbol_type.set(ID_C_base_name, class_name);
-  symbol_type.set(ID_C_element_type, java_type_from_char(subtype));
+  symbol_type.set(ID_element_type, java_type_from_char(subtype));
 
   return java_reference_type(symbol_type);
 }
 
-/// Return the type of the elements of a given java array type
-/// \param array_type The java array type
-/// \return The type of the elements of the array
-typet java_array_element_type(const symbol_typet &array_type)
+/// Return a const reference to the element type of a given java array type
+/// \param array_symbol The java array type
+const typet &java_array_element_type(const symbol_typet &array_symbol)
 {
-  INVARIANT(
-    is_java_array_tag(array_type.get_identifier()),
+  DATA_INVARIANT(
+    is_java_array_tag(array_symbol.get_identifier()),
     "Symbol should have array tag");
-  return array_type.find_type(ID_C_element_type);
+  return array_symbol.find_type(ID_element_type);
+}
+
+/// Return a non-const reference to the element type of a given java array type
+/// \param array_symbol The java array type
+typet &java_array_element_type(symbol_typet &array_symbol)
+{
+  DATA_INVARIANT(
+    is_java_array_tag(array_symbol.get_identifier()),
+    "Symbol should have array tag");
+  return array_symbol.add_type(ID_element_type);
+}
+
+/// Checks whether the given type is an array pointer type
+bool is_java_array_type(const typet &type)
+{
+  if(
+    !can_cast_type<pointer_typet>(type) ||
+    !can_cast_type<symbol_typet>(type.subtype()))
+  {
+    return false;
+  }
+  const auto &subtype_symbol = to_symbol_type(type.subtype());
+  return is_java_array_tag(subtype_symbol.get_identifier());
+}
+
+/// Checks whether the given type is a multi-dimensional array pointer type,
+// i.e., a pointer to an array type with element type also being a pointer to an
+/// array type.
+bool is_multidim_java_array_type(const typet &type)
+{
+  return is_java_array_type(type) &&
+         is_java_array_type(
+           java_array_element_type(to_symbol_type(type.subtype())));
 }
 
 /// See above
-/// \par parameters: Struct tag 'tag'
-/// \return True if the given struct is a Java array
+/// \param tag Tag of a struct
+/// \return True if the given string is a Java array tag, i.e., has a prefix
+/// of java::array[
 bool is_java_array_tag(const irep_idt& tag)
 {
   return has_prefix(id2string(tag), "java::array[");
 }
 
-bool is_reference_type(const char t)
-{
-  return 'a'==t;
-}
-
+/// Constructs a type indicated by the given character:
+/// - i  integer
+/// - l  long
+/// - s  short
+/// - b  byte
+/// - c  character
+/// - f  float
+/// - d  double
+/// - z  boolean
+/// - a  reference
 typet java_type_from_char(char t)
 {
   switch(t)
@@ -500,20 +542,20 @@ typet java_type_from_string(
         parse_list_types(src.substr(0, e_pos + 1), class_name_prefix, '(', ')');
 
       // create parameters for each type
-      code_typet::parameterst parameters;
+      java_method_typet::parameterst parameters;
       std::transform(
         param_types.begin(),
         param_types.end(),
         std::back_inserter(parameters),
-        [](const typet &type) { return code_typet::parametert(type); });
+        [](const typet &type) { return java_method_typet::parametert(type); });
 
-      return code_typet(std::move(parameters), std::move(return_type));
+      return java_method_typet(std::move(parameters), std::move(return_type));
     }
 
   case '[': // array type
     {
       // If this is a reference array, we generate a plain array[reference]
-      // with void* members, but note the real type in ID_C_element_type.
+      // with void* members, but note the real type in ID_element_type.
       if(src.size()<=1)
         return nil_typet();
       char subtype_letter=src[1];
@@ -525,7 +567,7 @@ typet java_type_from_string(
          subtype_letter=='T')   // Array of generic types
         subtype_letter='A';
       typet tmp=java_array_type(std::tolower(subtype_letter));
-      tmp.subtype().set(ID_C_element_type, subtype);
+      tmp.subtype().set(ID_element_type, subtype);
       return tmp;
     }
 
@@ -735,7 +777,8 @@ bool equal_java_types(const typet &type1, const typet &type2)
   bool arrays_with_same_element_type = true;
   if(
     type1.id() == ID_pointer && type2.id() == ID_pointer &&
-    type1.subtype().id() == ID_symbol && type2.subtype().id() == ID_symbol)
+    type1.subtype().id() == ID_symbol_type &&
+    type2.subtype().id() == ID_symbol_type)
   {
     const symbol_typet &subtype_symbol1 = to_symbol_type(type1.subtype());
     const symbol_typet &subtype_symbol2 = to_symbol_type(type2.subtype());
@@ -775,14 +818,14 @@ void get_dependencies_from_generic_parameters_rec(
   // method type with parameters and return value
   else if(t.id() == ID_code)
   {
-    const code_typet &c = to_code_type(t);
+    const java_method_typet &c = to_java_method_type(t);
     get_dependencies_from_generic_parameters_rec(c.return_type(), refs);
     for(const auto &param : c.parameters())
       get_dependencies_from_generic_parameters_rec(param.type(), refs);
   }
 
   // symbol type
-  else if(t.id() == ID_symbol)
+  else if(t.id() == ID_symbol_type)
   {
     const symbol_typet &symbol_type = to_symbol_type(t);
     const irep_idt class_name(symbol_type.get_identifier());
@@ -896,6 +939,8 @@ optionalt<size_t> java_generic_symbol_typet::generic_type_index(
 
 std::string pretty_java_type(const typet &type)
 {
+  if(type == java_void_type())
+    return "void";
   if(type == java_int_type())
     return "int";
   else if(type == java_long_type())
@@ -916,7 +961,7 @@ std::string pretty_java_type(const typet &type)
     return "byte";
   else if(is_reference(type))
   {
-    if(type.subtype().id() == ID_symbol)
+    if(type.subtype().id() == ID_symbol_type)
     {
       const auto &symbol_type = to_symbol_type(type.subtype());
       const irep_idt &id = symbol_type.get_identifier();
@@ -932,13 +977,13 @@ std::string pretty_java_type(const typet &type)
     return "?";
 }
 
-std::string pretty_signature(const code_typet &code_type)
+std::string pretty_signature(const java_method_typet &method_type)
 {
   std::ostringstream result;
   result << '(';
 
   bool first = true;
-  for(const auto p : code_type.parameters())
+  for(const auto p : method_type.parameters())
   {
     if(p.get_this())
       continue;

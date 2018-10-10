@@ -252,21 +252,23 @@ bool check_c_implicit_typecast(
 
 typet c_typecastt::follow_with_qualifiers(const typet &src_type)
 {
-  if(src_type.id()!=ID_symbol)
+  if(
+    src_type.id() != ID_struct_tag &&
+    src_type.id() != ID_union_tag)
+  {
     return src_type;
+  }
 
   typet result_type=src_type;
 
   // collect qualifiers
   c_qualifierst qualifiers(src_type);
 
-  while(result_type.id()==ID_symbol)
+  while(result_type.id() == ID_struct_tag || result_type.id() == ID_union_tag)
   {
-    const symbolt &followed_type_symbol =
-      ns.lookup(to_symbol_type(result_type));
-
-    result_type=followed_type_symbol.type;
-    qualifiers+=c_qualifierst(followed_type_symbol.type);
+    const typet &followed_type = ns.follow(result_type);
+    result_type = followed_type;
+    qualifiers += c_qualifierst(followed_type);
   }
 
   qualifiers.write(result_type);
@@ -277,7 +279,7 @@ typet c_typecastt::follow_with_qualifiers(const typet &src_type)
 c_typecastt::c_typet c_typecastt::get_c_type(
   const typet &type) const
 {
-  unsigned width=type.get_int(ID_width);
+  const std::size_t width = type.get_size_t(ID_width);
 
   if(type.id()==ID_signedbv)
   {
@@ -345,8 +347,6 @@ c_typecastt::c_typet c_typecastt::get_c_type(
   {
     return INT;
   }
-  else if(type.id()==ID_symbol)
-    return get_c_type(ns.follow(type));
   else if(type.id()==ID_rational)
     return RATIONAL;
   else if(type.id()==ID_real)
@@ -554,12 +554,6 @@ void c_typecastt::implicit_typecast_followed(
         warnings.push_back("incompatible pointer types");
 
       // check qualifiers
-
-      /*
-      if(src_type.subtype().get_bool(ID_C_constant) &&
-         !dest_type.subtype().get_bool(ID_C_constant))
-        warnings.push_back("disregarding const");
-      */
 
       if(src_type.subtype().get_bool(ID_C_volatile) &&
          !dest_type.subtype().get_bool(ID_C_volatile))

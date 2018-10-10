@@ -392,7 +392,13 @@ if($opt_j>1 && $has_thread_pool && $count>1)
   );
 }
 
-print "Running tests\n";
+if ($log_suffix) {
+  print "Running tests with log suffix: $log_suffix\n";
+}
+else
+{
+  print "Running tests\n";
+}
 foreach my $test (@tests) {
   if(defined($pool))
   {
@@ -421,7 +427,7 @@ print "\n";
 close LOG;
 
 if($opt_p && $failures != 0) {
-  open LOG,"<tests.log" or die "Failed to open tests.log\n";
+  open LOG,"<$logfile_name" or die "Failed to open $logfile_name\n";
 
   my $printed_this_test = 1;
   my $current_test = "";

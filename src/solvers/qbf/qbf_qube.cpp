@@ -8,9 +8,10 @@ Author: CM Wintersteiger
 
 #include "qbf_qube.h"
 
-#include <cassert>
 #include <cstdlib>
 #include <fstream>
+
+#include <util/invariant.h>
 
 qbf_qubet::qbf_qubet()
 {
@@ -22,10 +23,9 @@ qbf_qubet::~qbf_qubet()
 {
 }
 
-tvt qbf_qubet::l_get(literalt a) const
+tvt qbf_qubet::l_get(literalt) const
 {
-  assert(false);
-  return tvt(false);
+  UNREACHABLE;
 }
 
 const std::string qbf_qubet::solver_text()

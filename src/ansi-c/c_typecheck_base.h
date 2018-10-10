@@ -199,7 +199,6 @@ protected:
   virtual void make_index_type(exprt &expr);
   virtual void make_constant(exprt &expr);
   virtual void make_constant_index(exprt &expr);
-  virtual void make_constant_rec(exprt &expr);
 
   virtual bool gcc_types_compatible_p(const typet &, const typet &);
 
@@ -210,7 +209,7 @@ protected:
   virtual void typecheck_c_enum_type(typet &type);
   virtual void typecheck_c_enum_tag_type(c_enum_tag_typet &type);
   virtual void typecheck_code_type(code_typet &type);
-  virtual void typecheck_symbol_type(typet &type);
+  virtual void typecheck_typedef_type(typet &type);
   virtual void typecheck_c_bit_field_type(c_bit_field_typet &type);
   virtual void typecheck_typeof_type(typet &type);
   virtual void typecheck_array_type(array_typet &type);

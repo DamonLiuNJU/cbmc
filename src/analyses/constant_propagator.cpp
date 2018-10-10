@@ -16,11 +16,12 @@ Author: Peter Schrammel
 #include <util/format_expr.h>
 #endif
 
-#include <util/ieee_float.h>
-#include <util/find_symbols.h>
 #include <util/arith_tools.h>
-#include <util/simplify_expr.h>
+#include <util/base_type.h>
 #include <util/cprover_prefix.h>
+#include <util/find_symbols.h>
+#include <util/ieee_float.h>
+#include <util/simplify_expr.h>
 
 #include <langapi/language_util.h>
 
@@ -31,9 +32,13 @@ void constant_propagator_domaint::assign_rec(
   valuest &values,
   const exprt &lhs,
   const exprt &rhs,
-  const namespacet &ns)
+  const namespacet &ns,
+  const constant_propagator_ait *cp)
 {
   if(lhs.id()!=ID_symbol)
+    return;
+
+  if(cp && !cp->should_track_value(lhs, ns))
     return;
 
   const symbol_exprt &s=to_symbol_expr(lhs);
@@ -42,7 +47,12 @@ void constant_propagator_domaint::assign_rec(
   partial_evaluate(tmp, ns);
 
   if(tmp.is_constant())
+  {
+    DATA_INVARIANT(
+      base_type_eq(ns.lookup(s).type, tmp.type(), ns),
+      "type of constant to be replaced should match");
     values.set_to(s, tmp);
+  }
   else
     values.set_to_top(s);
 }
@@ -89,11 +99,11 @@ void constant_propagator_domaint::transform(
     const code_assignt &assignment=to_code_assign(from->code);
     const exprt &lhs=assignment.lhs();
     const exprt &rhs=assignment.rhs();
-    assign_rec(values, lhs, rhs, ns);
+    assign_rec(values, lhs, rhs, ns, cp);
   }
   else if(from->is_assume())
   {
-    two_way_propagate_rec(from->guard, ns);
+    two_way_propagate_rec(from->guard, ns, cp);
   }
   else if(from->is_goto())
   {
@@ -110,7 +120,7 @@ void constant_propagator_domaint::transform(
      values.set_to_bottom();
     else
     {
-      two_way_propagate_rec(g, ns);
+      two_way_propagate_rec(g, ns, cp);
       // If two way propagate is enabled then it may be possible to detect
       // that the branch condition is infeasible and thus the domain should
       // be set to bottom.  Without it the domain will only be set to bottom
@@ -175,7 +185,7 @@ void constant_propagator_domaint::transform(
             break;
 
           const symbol_exprt parameter_expr(p_it->get_identifier(), arg.type());
-          assign_rec(values, parameter_expr, arg, ns);
+          assign_rec(values, parameter_expr, arg, ns, cp);
 
           ++p_it;
         }
@@ -204,7 +214,7 @@ void constant_propagator_domaint::transform(
     const code_typet &type=to_code_type(symbol.type);
 
     for(const auto &param : type.parameters())
-      values.set_to_top(param.get_identifier());
+      values.set_to_top(symbol_exprt(param.get_identifier(), param.type()));
   }
 
   INVARIANT(from->is_goto() || !values.is_bottom,
@@ -220,7 +230,8 @@ void constant_propagator_domaint::transform(
 /// handles equalities and conjunctions containing equalities
 bool constant_propagator_domaint::two_way_propagate_rec(
   const exprt &expr,
-  const namespacet &ns)
+  const namespacet &,
+  const constant_propagator_ait *cp)
 {
 #ifdef DEBUG
   std::cout << "two_way_propagate_rec: " << format(expr) << '\n';
@@ -238,7 +249,7 @@ bool constant_propagator_domaint::two_way_propagate_rec(
       change = false;
 
       forall_operands(it, expr)
-        if(two_way_propagate_rec(*it, ns))
+        if(two_way_propagate_rec(*it, ns, cp))
           change=true;
     }
     while(change);
@@ -253,7 +264,7 @@ bool constant_propagator_domaint::two_way_propagate_rec(
     assign_rec(copy_values, lhs, rhs, ns);
     if(!values.is_constant(rhs) || values.is_constant(lhs))
        assign_rec(values, rhs, lhs, ns);
-    change=values.meet(copy_values);
+    change = values.meet(copy_values, ns);
   }
 #endif
 
@@ -287,8 +298,7 @@ bool constant_propagator_domaint::valuest::is_constant(const exprt &expr) const
     return false;
 
   if(expr.id()==ID_symbol)
-    if(replace_const.expr_map.find(to_symbol_expr(expr).get_identifier())==
-       replace_const.expr_map.end())
+    if(!replace_const.replaces_symbol(to_symbol_expr(expr).get_identifier()))
       return false;
 
   if(expr.id()==ID_index)
@@ -324,10 +334,10 @@ bool constant_propagator_domaint::valuest::is_constant_address_of(
 }
 
 /// Do not call this when iterating over replace_const.expr_map!
-bool constant_propagator_domaint::valuest::set_to_top(const irep_idt &id)
+bool constant_propagator_domaint::valuest::set_to_top(
+  const symbol_exprt &symbol_expr)
 {
-  replace_symbolt::expr_mapt::size_type n_erased=
-    replace_const.expr_map.erase(id);
+  const auto n_erased = replace_const.erase(symbol_expr.get_identifier());
 
   INVARIANT(n_erased==0 || !is_bottom, "bottom should have no elements at all");
 
@@ -340,7 +350,7 @@ void constant_propagator_domaint::valuest::set_dirty_to_top(
   const namespacet &ns)
 {
   typedef replace_symbolt::expr_mapt expr_mapt;
-  expr_mapt &expr_map=replace_const.expr_map;
+  expr_mapt &expr_map = replace_const.get_expr_map();
 
   for(expr_mapt::iterator it=expr_map.begin();
       it!=expr_map.end();)
@@ -351,7 +361,9 @@ void constant_propagator_domaint::valuest::set_dirty_to_top(
 
     if((!symbol.is_procedure_local() || dirty(id)) &&
        !symbol.type.get_bool(ID_C_constant))
-      it=expr_map.erase(it);
+    {
+      it = replace_const.erase(it);
+    }
     else
       it++;
   }
@@ -366,19 +378,19 @@ void constant_propagator_domaint::valuest::output(
   if(is_bottom)
   {
     out << "  bottom\n";
-    DATA_INVARIANT(replace_const.expr_map.empty(),
+    DATA_INVARIANT(is_empty(),
                    "If the domain is bottom, the map must be empty");
     return;
   }
 
   INVARIANT(!is_bottom, "Have handled bottom");
-  if(replace_const.expr_map.empty())
+  if(is_empty())
   {
     out << "top\n";
     return;
   }
 
-  for(const auto &p : replace_const.expr_map)
+  for(const auto &p : replace_const.get_expr_map())
   {
     out << ' ' << p.first << "=" << from_expr(ns, p.first, p.second) << '\n';
   }
@@ -386,7 +398,7 @@ void constant_propagator_domaint::valuest::output(
 
 void constant_propagator_domaint::output(
   std::ostream &out,
-  const ai_baset &ai,
+  const ai_baset &,
   const namespacet &ns) const
 {
   values.output(out, ns);
@@ -413,19 +425,20 @@ bool constant_propagator_domaint::valuest::merge(const valuest &src)
 
   bool changed=false;
 
-  replace_symbolt::expr_mapt &expr_map=replace_const.expr_map;
-  const replace_symbolt::expr_mapt &src_expr_map=src.replace_const.expr_map;
-
   // handle top
-  if(src_expr_map.empty())
+  if(src.is_empty())
   {
     // change if it was not top
-    changed=!expr_map.empty();
+    changed = !is_empty();
 
     set_to_top();
 
     return changed;
   }
+
+  replace_symbolt::expr_mapt &expr_map = replace_const.get_expr_map();
+  const replace_symbolt::expr_mapt &src_expr_map =
+    src.replace_const.get_expr_map();
 
   // remove those that are
   // - different in src
@@ -446,7 +459,7 @@ bool constant_propagator_domaint::valuest::merge(const valuest &src)
 
       if(expr!=src_expr)
       {
-        it=expr_map.erase(it);
+        it = replace_const.erase(it);
         changed=true;
       }
       else
@@ -454,7 +467,7 @@ bool constant_propagator_domaint::valuest::merge(const valuest &src)
     }
     else
     {
-      it=expr_map.erase(it);
+      it = replace_const.erase(it);
       changed=true;
     }
   }
@@ -464,19 +477,21 @@ bool constant_propagator_domaint::valuest::merge(const valuest &src)
 
 /// meet
 /// \return Return true if "this" has changed.
-bool constant_propagator_domaint::valuest::meet(const valuest &src)
+bool constant_propagator_domaint::valuest::meet(
+  const valuest &src,
+  const namespacet &ns)
 {
   if(src.is_bottom || is_bottom)
     return false;
 
   bool changed=false;
 
-  for(const auto &m : src.replace_const.expr_map)
+  for(const auto &m : src.replace_const.get_expr_map())
   {
-    replace_symbolt::expr_mapt::iterator
-      c_it=replace_const.expr_map.find(m.first);
+    replace_symbolt::expr_mapt::const_iterator c_it =
+      replace_const.get_expr_map().find(m.first);
 
-    if(c_it!=replace_const.expr_map.end())
+    if(c_it != replace_const.get_expr_map().end())
     {
       if(c_it->second!=m.second)
       {
@@ -487,7 +502,11 @@ bool constant_propagator_domaint::valuest::meet(const valuest &src)
     }
     else
     {
-      set_to(m.first, m.second);
+      const typet &m_id_type = ns.lookup(m.first).type;
+      DATA_INVARIANT(
+        base_type_eq(m_id_type, m.second.type(), ns),
+        "type of constant to be stored should match");
+      set_to(symbol_exprt(m.first, m_id_type), m.second);
       changed=true;
     }
   }
@@ -498,8 +517,8 @@ bool constant_propagator_domaint::valuest::meet(const valuest &src)
 /// \return Return true if "this" has changed.
 bool constant_propagator_domaint::merge(
   const constant_propagator_domaint &other,
-  locationt from,
-  locationt to)
+  locationt,
+  locationt)
 {
   return values.merge(other.values);
 }
@@ -543,7 +562,7 @@ bool constant_propagator_domaint::partial_evaluate_with_all_rounding_modes(
   {
     constant_propagator_domaint child(*this);
     child.values.set_to(
-      ID_cprover_rounding_mode_str,
+      symbol_exprt(ID_cprover_rounding_mode_str, integer_typet()),
       from_integer(rounding_modes[i], integer_typet()));
     exprt result = expr;
     if(child.replace_constants_and_simplify(result, ns))
@@ -587,43 +606,45 @@ void constant_propagator_ait::replace(
 {
   Forall_goto_program_instructions(it, goto_function.body)
   {
-    state_mapt::iterator s_it=state_map.find(it);
+    // Works because this is a location (but not history) sensitive domain
+    const constant_propagator_domaint &d = (*this)[it];
 
-    if(s_it==state_map.end())
+    if(d.is_bottom())
       continue;
 
-    replace_types_rec(s_it->second.values.replace_const, it->code);
-    replace_types_rec(s_it->second.values.replace_const, it->guard);
+    replace_types_rec(d.values.replace_const, it->code);
+    replace_types_rec(d.values.replace_const, it->guard);
 
     if(it->is_goto() || it->is_assume() || it->is_assert())
     {
-      s_it->second.partial_evaluate(it->guard, ns);
+      d.partial_evaluate(it->guard, ns);
     }
     else if(it->is_assign())
     {
       exprt &rhs=to_code_assign(it->code).rhs();
-      s_it->second.partial_evaluate(rhs, ns);
+      d.partial_evaluate(rhs, ns);
+
       if(rhs.id()==ID_constant)
         rhs.add_source_location()=it->code.op0().source_location();
     }
     else if(it->is_function_call())
     {
       exprt &function = to_code_function_call(it->code).function();
-      s_it->second.partial_evaluate(function, ns);
+      d.partial_evaluate(function, ns);
 
       exprt::operandst &args=
         to_code_function_call(it->code).arguments();
 
       for(auto &arg : args)
       {
-        s_it->second.partial_evaluate(arg, ns);
+        d.partial_evaluate(arg, ns);
       }
     }
     else if(it->is_other())
     {
       if(it->code.get_statement()==ID_expression)
       {
-        s_it->second.partial_evaluate(it->code, ns);
+        d.partial_evaluate(it->code, ns);
       }
     }
   }

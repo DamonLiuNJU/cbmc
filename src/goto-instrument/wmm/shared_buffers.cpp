@@ -464,7 +464,8 @@ void shared_bufferst::nondet_flush(
 
   const symbol_exprt choice0_expr=symbol_exprt(choice0, bool_typet());
   const symbol_exprt delay_expr=symbol_exprt(choice2, bool_typet());
-  const exprt nondet_bool_expr=side_effect_expr_nondett(bool_typet());
+  const exprt nondet_bool_expr =
+    side_effect_expr_nondett(bool_typet(), source_location);
 
   // throw Boolean dice
   assignment(goto_program, target, source_location, choice0, nondet_bool_expr);
@@ -970,11 +971,10 @@ bool shared_bufferst::is_buffered(
   if(instrumentations.find(identifier)!=instrumentations.end())
     return false; // these are instrumentations
 
-  return is_buffered_in_general(ns, symbol_expr, is_write);
+  return is_buffered_in_general(symbol_expr, is_write);
 }
 
 bool shared_bufferst::is_buffered_in_general(
-  const namespacet &ns,
   const symbol_exprt &symbol_expr,
   bool is_write
   // are we asking for the variable (false), or for the variable and the
@@ -1042,7 +1042,7 @@ void shared_bufferst::affected_by_delay(
             message.debug() <<"debug: "<<id2string(w_it->second.object)
               <<" reads from "<<id2string(r_it->second.object)
               <<messaget::eom;
-            if(is_buffered_in_general(ns, r_it->second.symbol_expr, true))
+            if(is_buffered_in_general(r_it->second.symbol_expr, true))
               // shouldn't it be true? false => overapprox
               affected_by_delay_set.insert(w_it->second.object);
           }
@@ -1185,8 +1185,8 @@ void shared_bufferst::cfg_visitort::weak_memory(
                     instruction.function, "1");
                   const symbol_exprt choice1_expr=symbol_exprt(choice1,
                     bool_typet());
-                  const exprt nondet_bool_expr=side_effect_expr_nondett(
-                    bool_typet());
+                  const exprt nondet_bool_expr =
+                    side_effect_expr_nondett(bool_typet(), source_location);
 
                   // throw Boolean dice
                   shared_buffers.assignment(

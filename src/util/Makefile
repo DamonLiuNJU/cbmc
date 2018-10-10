@@ -13,6 +13,7 @@ SRC = arith_tools.cpp \
       expr.cpp \
       expr_initializer.cpp \
       expr_util.cpp \
+      exception_utils.cpp \
       file_util.cpp \
       find_macros.cpp \
       find_symbols.cpp \
@@ -40,11 +41,13 @@ SRC = arith_tools.cpp \
       json_stream.cpp \
       lispexpr.cpp \
       lispirep.cpp \
+      mathematical_types.cpp \
       memory_info.cpp \
       merge_irep.cpp \
       message.cpp \
       mp_arith.cpp \
       namespace.cpp \
+      nondet.cpp \
       options.cpp \
       parse_options.cpp \
       parser.cpp \
@@ -93,6 +96,7 @@ SRC = arith_tools.cpp \
       union_find.cpp \
       union_find_replace.cpp \
       unwrap_nested_exception.cpp \
+      version.cpp \
       xml.cpp \
       xml_expr.cpp \
       xml_irep.cpp \
@@ -103,9 +107,26 @@ INCLUDES= -I ..
 include ../config.inc
 include ../common
 
-CLEANFILES = util$(LIBEXT)
+# get version from git
+GIT_INFO = $(shell git describe --tags --always --dirty || echo "n/a")
+RELEASE_INFO = const char *CBMC_VERSION="$(CBMC_VERSION) ($(GIT_INFO))";
+GIT_INFO_FILE = version.cpp
 
-all: util$(LIBEXT)
+$(GIT_INFO_FILE):
+	echo '$(RELEASE_INFO)' > $@
+
+generated_files: $(GIT_INFO_FILE)
+
+# mark the actually generated file as a phony target to enforce a rebuild - but
+# only if the version information has changed!
+KNOWN_RELEASE_INFO = $(shell cat $(GIT_INFO_FILE) 2>/dev/null)
+ifneq ($(RELEASE_INFO), $(KNOWN_RELEASE_INFO))
+.PHONY: $(GIT_INFO_FILE)
+endif
+
+CLEANFILES = $(GIT_INFO_FILE) util$(LIBEXT)
+
+all: util$(LIBEXT) $(GIT_INFO_FILE)
 
 util$(LIBEXT): $(OBJ)
 	$(LINKLIB)

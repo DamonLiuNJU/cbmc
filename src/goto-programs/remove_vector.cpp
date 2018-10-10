@@ -50,14 +50,8 @@ static bool have_to_remove_vector(const typet &type)
 {
   if(type.id()==ID_struct || type.id()==ID_union)
   {
-    const struct_union_typet &struct_union_type=
-      to_struct_union_type(type);
-
-    for(struct_union_typet::componentst::const_iterator
-        it=struct_union_type.components().begin();
-        it!=struct_union_type.components().end();
-        it++)
-      if(have_to_remove_vector(it->type()))
+    for(const auto &c : to_struct_union_type(type).components())
+      if(have_to_remove_vector(c.type()))
         return true;
   }
   else if(type.id()==ID_pointer ||
@@ -140,6 +134,23 @@ static void remove_vector(exprt &expr)
     else if(expr.id()==ID_vector)
     {
       expr.id(ID_array);
+    }
+    else if(expr.id() == ID_typecast)
+    {
+      const auto &op = to_typecast_expr(expr).op();
+
+      if(op.type().id() != ID_array)
+      {
+        // (vector-type) x ==> { x, x, ..., x }
+        remove_vector(expr.type());
+        array_typet array_type = to_array_type(expr.type());
+        const auto dimension = numeric_cast_v<std::size_t>(array_type.size());
+        exprt casted_op =
+          typecast_exprt::conditional_cast(op, array_type.subtype());
+        array_exprt array_expr(array_type);
+        array_expr.operands().resize(dimension, op);
+        expr = array_expr;
+      }
     }
   }
 

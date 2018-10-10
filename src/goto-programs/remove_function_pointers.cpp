@@ -13,18 +13,18 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <cassert>
 
+#include <util/base_type.h>
+#include <util/c_types.h>
 #include <util/fresh_symbol.h>
+#include <util/invariant.h>
+#include <util/message.h>
+#include <util/pointer_offset_size.h>
 #include <util/replace_expr.h>
 #include <util/source_location.h>
 #include <util/std_expr.h>
 #include <util/type_eq.h>
-#include <util/message.h>
-#include <util/base_type.h>
 
 #include <analyses/does_remove_const.h>
-#include <util/invariant.h>
-
-#include <util/c_types.h>
 
 #include "remove_skip.h"
 #include "compute_called_functions.h"
@@ -44,6 +44,20 @@ public:
 
   bool remove_function_pointers(goto_programt &goto_program);
 
+  // a set of function symbols
+  using functionst = remove_const_function_pointerst::functionst;
+
+  /// Replace a call to a dynamic function at location
+  /// target in the given goto-program by a case-split
+  /// over a given set of functions
+  /// \param goto_program The goto program that contains target
+  /// \param target location with function call with function pointer
+  /// \param functions The set of functions to consider
+  void remove_function_pointer(
+    goto_programt &goto_program,
+    goto_programt::targett target,
+    const functionst &functions);
+
 protected:
   const namespacet ns;
   symbol_tablet &symbol_table;
@@ -57,6 +71,11 @@ protected:
   // --remove-const-function-pointers instead of --remove-function-pointers
   bool only_resolve_const_fps;
 
+  /// Replace a call to a dynamic function at location
+  /// target in the given goto-program by determining
+  /// functions that have a compatible signature
+  /// \param goto_program The goto program that contains target
+  /// \param target location with function call with function pointer
   void remove_function_pointer(
     goto_programt &goto_program,
     goto_programt::targett target);
@@ -135,8 +154,8 @@ bool remove_function_pointerst::arg_is_type_compatible(
     return false;
   }
 
-  // structs/unions need to match,
-  // which could be made more generous
+  return pointer_offset_bits(call_type, ns) ==
+         pointer_offset_bits(function_type, ns);
 
   return false;
 }
@@ -348,6 +367,19 @@ void remove_function_pointerst::remove_function_pointer(
     }
   }
 
+  remove_function_pointer(goto_program, target, functions);
+}
+
+void remove_function_pointerst::remove_function_pointer(
+  goto_programt &goto_program,
+  goto_programt::targett target,
+  const functionst &functions)
+{
+  const code_function_callt &code = to_code_function_call(target->code);
+
+  const exprt &function = code.function();
+  const exprt &pointer = to_dereference_expr(function).pointer();
+
   // the final target is a skip
   goto_programt final_skip;
 
@@ -420,9 +452,8 @@ void remove_function_pointerst::remove_function_pointer(
 
   // We preserve the original dereferencing to possibly catch
   // further pointer-related errors.
-  code_expressiont code_expression;
+  code_expressiont code_expression(function);
   code_expression.add_source_location()=function.source_location();
-  code_expression.expression()=function;
   target->code.swap(code_expression);
   target->type=OTHER;
 

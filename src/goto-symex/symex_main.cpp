@@ -14,10 +14,11 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <cassert>
 #include <memory>
 
+#include <util/exception_utils.h>
+#include <util/make_unique.h>
+#include <util/replace_symbol.h>
 #include <util/std_expr.h>
 #include <util/symbol_table.h>
-#include <util/replace_symbol.h>
-#include <util/make_unique.h>
 
 #include <analyses/dirty.h>
 
@@ -107,13 +108,12 @@ void goto_symext::rewrite_quantifiers(exprt &expr, statet &state)
   {
     // forall X. P -> P
     // we keep the quantified variable unique by means of L2 renaming
-    PRECONDITION(expr.operands().size()==2);
-    PRECONDITION(expr.op0().id()==ID_symbol);
-    symbol_exprt tmp0=
-      to_symbol_expr(to_ssa_expr(expr.op0()).get_original_expr());
+    auto &quant_expr = to_quantifier_expr(expr);
+    symbol_exprt tmp0 =
+      to_symbol_expr(to_ssa_expr(quant_expr.symbol()).get_original_expr());
     symex_decl(state, tmp0);
-    exprt tmp=expr.op1();
-    expr.swap(tmp);
+    exprt tmp = quant_expr.where();
+    quant_expr.swap(tmp);
   }
 }
 
@@ -132,8 +132,15 @@ void goto_symext::initialize_entry_point(
 
   INVARIANT(
     !pc->function.empty(), "all symexed instructions should have a function");
-  state.dirty.populate_dirty_for_function(
-    pc->function, get_goto_function(pc->function));
+
+  const goto_functiont &entry_point_function = get_goto_function(pc->function);
+
+  auto emplace_safe_pointers_result =
+    state.safe_pointers.emplace(pc->function, local_safe_pointerst{ns});
+  if(emplace_safe_pointers_result.second)
+    emplace_safe_pointers_result.first->second(entry_point_function.body);
+
+  state.dirty.populate_dirty_for_function(pc->function, entry_point_function);
 
   symex_transition(state, state.source.pc);
 }
@@ -274,9 +281,9 @@ void goto_symext::symex_from_entry_point_of(
   {
     start_function = &get_goto_function(goto_functionst::entry_point());
   }
-  catch(const std::out_of_range &error)
+  catch(const std::out_of_range &)
   {
-    throw "the program has no entry point";
+    throw unsupported_operation_exceptiont("the program has no entry point");
   }
 
   statet state;
@@ -454,9 +461,9 @@ void goto_symext::symex_step(
     break;
 
   case NO_INSTRUCTION_TYPE:
-    throw "symex got NO_INSTRUCTION";
+    throw unsupported_operation_exceptiont("symex got NO_INSTRUCTION");
 
   default:
-    throw "symex got unexpected instruction";
+    UNREACHABLE;
   }
 }

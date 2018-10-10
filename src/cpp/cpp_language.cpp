@@ -142,11 +142,8 @@ bool cpp_languaget::generate_support_functions(
 
 void cpp_languaget::show_parse(std::ostream &out)
 {
-  for(cpp_parse_treet::itemst::const_iterator it=
-      cpp_parse_tree.items.begin();
-      it!=cpp_parse_tree.items.end();
-      it++)
-    show_parse(out, *it);
+  for(const auto &i : cpp_parse_tree.items)
+    show_parse(out, i);
 }
 
 void cpp_languaget::show_parse(
@@ -158,14 +155,10 @@ void cpp_languaget::show_parse(
     const cpp_linkage_spect &linkage_spec=
       item.get_linkage_spec();
 
-    out << "LINKAGE " << linkage_spec.linkage().get("value")
-        << ":\n";
+    out << "LINKAGE " << linkage_spec.linkage().get(ID_value) << ":\n";
 
-    for(cpp_linkage_spect::itemst::const_iterator
-        it=linkage_spec.items().begin();
-        it!=linkage_spec.items().end();
-        it++)
-      show_parse(out, *it);
+    for(const auto &i : linkage_spec.items())
+      show_parse(out, i);
 
     out << '\n';
   }
@@ -177,11 +170,8 @@ void cpp_languaget::show_parse(
     out << "NAMESPACE " << namespace_spec.get_namespace()
         << ":\n";
 
-    for(cpp_namespace_spect::itemst::const_iterator
-        it=namespace_spec.items().begin();
-        it!=namespace_spec.items().end();
-        it++)
-      show_parse(out, *it);
+    for(const auto &i : namespace_spec.items())
+      show_parse(out, i);
 
     out << '\n';
   }
@@ -229,7 +219,7 @@ bool cpp_languaget::from_type(
 bool cpp_languaget::type_to_name(
   const typet &type,
   std::string &name,
-  const namespacet &ns)
+  const namespacet &)
 {
   name=cpp_type2name(type);
   return false;
@@ -237,7 +227,7 @@ bool cpp_languaget::type_to_name(
 
 bool cpp_languaget::to_expr(
   const std::string &code,
-  const std::string &module,
+  const std::string &,
   exprt &expr,
   const namespacet &ns)
 {

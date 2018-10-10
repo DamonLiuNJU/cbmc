@@ -8,6 +8,8 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include "std_expr.h"
 
+#include <util/namespace.h>
+
 #include <cassert>
 
 #include "arith_tools.h"
@@ -72,7 +74,7 @@ static void build_object_descriptor_rec(
     build_object_descriptor_rec(ns, index.array(), dest);
 
     exprt sub_size=size_of_expr(expr.type(), ns);
-    assert(sub_size.is_not_nil());
+    CHECK_RETURN(sub_size.is_not_nil());
 
     dest.offset()=
       plus_exprt(dest.offset(),
@@ -87,7 +89,7 @@ static void build_object_descriptor_rec(
     build_object_descriptor_rec(ns, struct_op, dest);
 
     exprt offset=member_offset_expr(member, ns);
-    assert(offset.is_not_nil());
+    CHECK_RETURN(offset.is_not_nil());
 
     dest.offset()=
       plus_exprt(dest.offset(),
@@ -122,7 +124,7 @@ void object_descriptor_exprt::build(
   const exprt &expr,
   const namespacet &ns)
 {
-  assert(object().id()==ID_unknown);
+  PRECONDITION(object().id() == ID_unknown);
   object()=expr;
 
   if(offset().id()==ID_unknown)
@@ -130,7 +132,7 @@ void object_descriptor_exprt::build(
 
   build_object_descriptor_rec(ns, expr, *this);
 
-  assert(root_object().type().id()!=ID_empty);
+  POSTCONDITION(root_object().type().id() != ID_empty);
 }
 
 shift_exprt::shift_exprt(
@@ -156,7 +158,7 @@ extractbits_exprt::extractbits_exprt(
   const typet &_type):
   exprt(ID_extractbits, _type)
 {
-  assert(_upper>=_lower);
+  PRECONDITION(_upper >= _lower);
   operands().resize(3);
   src()=_src;
   upper()=from_integer(_upper, integer_typet());
@@ -166,4 +168,46 @@ extractbits_exprt::extractbits_exprt(
 address_of_exprt::address_of_exprt(const exprt &_op):
   unary_exprt(ID_address_of, _op, pointer_type(_op.type()))
 {
+}
+
+// Implementation of struct_exprt::component for const / non const overloads.
+template <typename T>
+auto component(T &struct_expr, const irep_idt &name, const namespacet &ns)
+  -> decltype(struct_expr.op0())
+{
+  static_assert(
+    std::is_base_of<struct_exprt, T>::value, "T must be a struct_exprt.");
+  const auto index =
+    to_struct_type(ns.follow(struct_expr.type())).component_number(name);
+  DATA_INVARIANT(
+    index < struct_expr.operands().size(),
+    "component matching index should exist");
+  return struct_expr.operands()[index];
+}
+
+/// \return The expression for a named component of this struct.
+exprt &struct_exprt::component(const irep_idt &name, const namespacet &ns)
+{
+  return ::component(*this, name, ns);
+}
+
+/// \return The expression for a named component of this struct.
+const exprt &
+struct_exprt::component(const irep_idt &name, const namespacet &ns) const
+{
+  return ::component(*this, name, ns);
+}
+
+const exprt &object_descriptor_exprt::root_object() const
+{
+  const exprt *p = &object();
+
+  while(p->id() == ID_member || p->id() == ID_index)
+  {
+    DATA_INVARIANT(
+      p->has_operands(), "member and index expressions have operands");
+    p = &p->op0();
+  }
+
+  return *p;
 }

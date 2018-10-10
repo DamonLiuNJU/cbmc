@@ -893,8 +893,8 @@ bool cpp_typecheckt::user_defined_conversion_sequence(
           const dereference_exprt deref(address);
 
           // create temporary object
-          side_effect_exprt tmp_object_expr(ID_temporary_object, type);
-          tmp_object_expr.add_source_location()=expr.source_location();
+          side_effect_exprt tmp_object_expr(
+            ID_temporary_object, type, expr.source_location());
           tmp_object_expr.copy_to_operands(deref);
           tmp_object_expr.set(ID_C_lvalue, true);
 
@@ -911,30 +911,22 @@ bool cpp_typecheckt::user_defined_conversion_sequence(
       if(from.id()==ID_struct)
         from_struct=to_struct_type(from);
 
-      struct_typet to_struct=to_struct_type(to);
-
       bool found=false;
 
-      for(struct_typet::componentst::const_iterator
-          it=to_struct.components().begin();
-          it != to_struct.components().end();
-          it++)
+      for(const auto &component : to_struct_type(to).components())
       {
-        const irept &component=*it;
-
         if(component.get_bool(ID_from_base))
           continue;
 
-        if(component.get_bool("is_explicit"))
+        if(component.get_bool(ID_is_explicit))
           continue;
 
-        const typet &comp_type =
-          static_cast<const typet&>(component.find(ID_type));
+        const typet &comp_type = component.type();
 
         if(comp_type.id() !=ID_code)
           continue;
 
-        if(comp_type.find(ID_return_type).id() !=ID_constructor)
+        if(to_code_type(comp_type).return_type().id() != ID_constructor)
           continue;
 
         // TODO: ellipsis
@@ -978,10 +970,10 @@ bool cpp_typecheckt::user_defined_conversion_sequence(
 
               tmp_expr.add_source_location()=expr.source_location();
 
-              exprt func_symb=cpp_symbol_expr(lookup(component.get(ID_name)));
+              exprt func_symb = cpp_symbol_expr(lookup(component.get_name()));
               func_symb.type()=comp_type;
               {
-                exprt tmp("already_typechecked");
+                exprt tmp(ID_already_typechecked);
                 tmp.copy_to_operands(func_symb);
                 func_symb.swap(func_symb);
               }
@@ -1025,14 +1017,14 @@ bool cpp_typecheckt::user_defined_conversion_sequence(
               expr_deref.set(ID_C_lvalue, true);
               expr_deref.add_source_location()=expr.source_location();
 
-              exprt new_object("new_object", type);
+              exprt new_object(ID_new_object, type);
               new_object.set(ID_C_lvalue, true);
               new_object.type().set(ID_C_constant, false);
 
-              exprt func_symb=cpp_symbol_expr(lookup(component.get(ID_name)));
+              exprt func_symb = cpp_symbol_expr(lookup(component.get_name()));
               func_symb.type()=comp_type;
               {
-                exprt tmp("already_typechecked");
+                exprt tmp(ID_already_typechecked);
                 tmp.copy_to_operands(func_symb);
                 func_symb.swap(func_symb);
               }
@@ -1062,30 +1054,20 @@ bool cpp_typecheckt::user_defined_conversion_sequence(
   // conversion operators
   if(from.id()==ID_struct)
   {
-    struct_typet from_struct=to_struct_type(from);
-
     bool found=false;
-    for(struct_typet::componentst::const_iterator
-        it=from_struct.components().begin();
-        it != from_struct.components().end(); it++)
+    for(const auto &component : to_struct_type(from).components())
     {
-      const irept &component=*it;
-      const typet comp_type=static_cast<const typet&>(component.find(ID_type));
-
       if(component.get_bool(ID_from_base))
         continue;
 
-      if(!component.get_bool("is_cast_operator"))
+      if(!component.get_bool(ID_is_cast_operator))
         continue;
 
-      assert(component.get(ID_type)==ID_code &&
-             component.find(ID_type).find(ID_parameters).get_sub().size()==1);
+      const code_typet &comp_type = to_code_type(component.type());
+      DATA_INVARIANT(
+        comp_type.parameters().size() == 1, "expected exactly one parameter");
 
-      typet this_type =
-        static_cast<const typet&>(comp_type.find(ID_parameters)
-                                           .get_sub()
-                                           .front()
-                                           .find(ID_type));
+      typet this_type = comp_type.parameters().front().type();
       this_type.set(ID_C_reference, true);
 
       exprt this_expr(expr);
@@ -1099,14 +1081,11 @@ bool cpp_typecheckt::user_defined_conversion_sequence(
       {
         // To take care of the possible virtual case,
         // we build the function as a member expression.
-        irept func_name(ID_name);
-        func_name.set(ID_identifier, component.get(ID_base_name));
-        cpp_namet cpp_func_name;
-        cpp_func_name.get_sub().push_back(func_name);
+        const cpp_namet cpp_func_name(component.get_base_name());
 
         exprt member_func(ID_member);
         member_func.add(ID_component_cpp_name)=cpp_func_name;
-        exprt ac("already_typechecked");
+        exprt ac(ID_already_typechecked);
         ac.copy_to_operands(expr);
         member_func.copy_to_operands(ac);
 
@@ -1258,9 +1237,9 @@ bool cpp_typecheckt::reference_binding(
       expr.set(ID_C_lvalue, true);
     else if(expr.get(ID_statement)==ID_function_call)
       expr.set(ID_C_lvalue, true);
-    else if(expr.get_bool("#temporary_avoided"))
+    else if(expr.get_bool(ID_C_temporary_avoided))
     {
-      expr.remove("#temporary_avoided");
+      expr.remove(ID_C_temporary_avoided);
       exprt temporary;
       new_temporary(expr.source_location(), expr.type(), expr, temporary);
       expr.swap(temporary);
@@ -1295,25 +1274,18 @@ bool cpp_typecheckt::reference_binding(
   }
 
   // conversion operators
-  typet from_type=follow(expr.type());
+  const typet &from_type = follow(expr.type());
   if(from_type.id()==ID_struct)
   {
-    struct_typet from_struct=to_struct_type(from_type);
-
-    for(struct_typet::componentst::const_iterator
-        it=from_struct.components().begin();
-        it != from_struct.components().end(); it++)
+    for(const auto &component : to_struct_type(from_type).components())
     {
-      const irept &component=*it;
-
       if(component.get_bool(ID_from_base))
         continue;
 
-      if(!component.get_bool("is_cast_operator"))
+      if(!component.get_bool(ID_is_cast_operator))
         continue;
 
-      const code_typet &component_type =
-        to_code_type(static_cast<const typet&>(component.find(ID_type)));
+      const code_typet &component_type = to_code_type(component.type());
 
       // otherwise it cannot bind directly (not an lvalue)
       if(!is_reference(component_type.return_type()))
@@ -1337,14 +1309,11 @@ bool cpp_typecheckt::reference_binding(
       {
         // To take care of the possible virtual case,
         // we build the function as a member expression.
-        irept func_name(ID_name);
-        func_name.set(ID_identifier, component.get(ID_base_name));
-        cpp_namet cpp_func_name;
-        cpp_func_name.get_sub().push_back(func_name);
+        const cpp_namet cpp_func_name(component.get_base_name());
 
         exprt member_func(ID_member);
         member_func.add(ID_component_cpp_name)=cpp_func_name;
-        exprt ac("already_typechecked");
+        exprt ac(ID_already_typechecked);
         ac.copy_to_operands(expr);
         member_func.copy_to_operands(ac);
 
@@ -1662,7 +1631,7 @@ bool cpp_typecheckt::const_typecast(
   const typet &type,
   exprt &new_expr)
 {
-  assert(is_reference(expr.type())==false);
+  PRECONDITION(!is_reference(expr.type()));
 
   exprt curr_expr=expr;
 
@@ -1965,7 +1934,7 @@ bool cpp_typecheckt::static_typecast(
     else
     {
       // try to avoid temporary
-      new_expr.set("#temporary_avoided", true);
+      new_expr.set(ID_C_temporary_avoided, true);
       if(new_expr.get_bool(ID_C_lvalue))
         new_expr.remove(ID_C_lvalue);
     }

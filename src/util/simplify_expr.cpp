@@ -8,7 +8,6 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include "simplify_expr.h"
 
-#include <cassert>
 #include <algorithm>
 
 #include "arith_tools.h"
@@ -19,6 +18,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include "endianness_map.h"
 #include "expr_util.h"
 #include "fixedbv.h"
+#include "invariant.h"
 #include "namespace.h"
 #include "pointer_offset_size.h"
 #include "rational.h"
@@ -135,25 +135,22 @@ bool simplify_exprt::simplify_popcount(popcount_exprt &expr)
 
   if(op.is_constant())
   {
-    const typet &type=ns.follow(op.type());
+    const typet &op_type = op.type();
 
-    if(type.id()==ID_signedbv ||
-       type.id()==ID_unsignedbv)
+    if(op_type.id() == ID_signedbv || op_type.id() == ID_unsignedbv)
     {
-      mp_integer value;
-      if(!to_integer(op, value))
-      {
-        std::size_t result;
+      const auto width = to_bitvector_type(op_type).get_width();
+      const auto &value = to_constant_expr(op).get_value();
+      std::size_t result = 0;
 
-        for(result=0; value!=0; value=value>>1)
-          if(value.is_odd())
-            result++;
+      for(std::size_t i = 0; i < width; i++)
+        if(get_bitvector_bit(value, i))
+          result++;
 
-        exprt simp_result = from_integer(result, expr.type());
-        expr.swap(simp_result);
+      auto result_expr = from_integer(result, expr.type());
+      expr.swap(result_expr);
 
-        return false;
-      }
+      return false;
     }
   }
 
@@ -225,7 +222,7 @@ bool simplify_exprt::simplify_typecast(exprt &expr)
     inequality.add_source_location()=expr.source_location();
     inequality.lhs()=expr.op0();
     inequality.rhs()=from_integer(0, op_type);
-    assert(inequality.rhs().is_not_nil());
+    CHECK_RETURN(inequality.rhs().is_not_nil());
     simplify_node(inequality);
     expr.swap(inequality);
     return false;
@@ -260,7 +257,7 @@ bool simplify_exprt::simplify_typecast(exprt &expr)
     inequality.add_source_location()=expr.source_location();
     inequality.lhs()=expr.op0();
     inequality.rhs()=from_integer(0, op_type);
-    assert(inequality.rhs().is_not_nil());
+    CHECK_RETURN(inequality.rhs().is_not_nil());
     simplify_node(inequality);
     expr.op0()=inequality;
     simplify_typecast(expr); // recursive call
@@ -321,15 +318,16 @@ bool simplify_exprt::simplify_typecast(exprt &expr)
       (expr.op0().op0().is_constant() &&
        to_constant_expr(expr.op0().op0()).get_value()==ID_NULL)))
   {
-    mp_integer sub_size=pointer_offset_size(op_type.subtype(), ns);
-    if(sub_size!=-1)
+    auto sub_size = pointer_offset_size(to_pointer_type(op_type).subtype(), ns);
+    if(sub_size.has_value())
     {
       // void*
-      if(sub_size==0 || sub_size==1)
+      if(*sub_size == 0 || *sub_size == 1)
         expr.op0()=typecast_exprt(expr.op0().op1(), size_type());
       else
-        expr.op0()=mult_exprt(from_integer(sub_size, size_type()),
-                              typecast_exprt(expr.op0().op1(), size_type()));
+        expr.op0() = mult_exprt(
+          from_integer(*sub_size, size_type()),
+          typecast_exprt(expr.op0().op1(), size_type()));
 
       simplify_rec(expr.op0());
       simplify_typecast(expr); // rec. call
@@ -392,9 +390,9 @@ bool simplify_exprt::simplify_typecast(exprt &expr)
      op_type.id()==ID_pointer &&
      expr.op0().id()==ID_plus)
   {
-    const mp_integer step=pointer_offset_size(op_type.subtype(), ns);
+    const auto step = pointer_offset_size(to_pointer_type(op_type).subtype(), ns);
 
-    if(step>0)
+    if(step.has_value() && *step != 0)
     {
       const typet size_t_type(size_type());
       expr.op0().type()=size_t_type;
@@ -408,8 +406,8 @@ bool simplify_exprt::simplify_typecast(exprt &expr)
         else
         {
           op.make_typecast(size_t_type);
-          if(step>1)
-            op=mult_exprt(from_integer(step, size_t_type), op);
+          if(*step > 1)
+            op = mult_exprt(from_integer(*step, size_t_type), op);
         }
       }
 
@@ -488,13 +486,13 @@ bool simplify_exprt::simplify_typecast(exprt &expr)
         if(operand.is_true())
         {
           expr=from_integer(1, expr_type);
-          assert(expr.is_not_nil());
+          CHECK_RETURN(expr.is_not_nil());
           return false;
         }
         else if(operand.is_false())
         {
           expr=from_integer(0, expr_type);
-          assert(expr.is_not_nil());
+          CHECK_RETURN(expr.is_not_nil());
           return false;
         }
       }
@@ -503,7 +501,7 @@ bool simplify_exprt::simplify_typecast(exprt &expr)
         const typet &c_enum_type=ns.follow_tag(to_c_enum_tag_type(expr_type));
         if(c_enum_type.id()==ID_c_enum) // possibly incomplete
         {
-          unsigned int_value=operand.is_true();
+          unsigned int_value = operand.is_true() ? 1u : 0u;
           exprt tmp=from_integer(int_value, c_enum_type);
           tmp.type()=expr_type; // we maintain the tag type
           expr=tmp;
@@ -676,15 +674,15 @@ bool simplify_exprt::simplify_typecast(exprt &expr)
          expr_type_id==ID_signedbv ||
          expr_type_id==ID_floatbv)
       {
-        mp_integer int_value=binary2integer(id2string(value), false);
+        mp_integer int_value = bv2integer(id2string(value), false);
         expr=from_integer(int_value, expr_type);
         return false;
       }
     }
     else if(op_type_id==ID_c_enum_tag) // enum to int
     {
-      const typet &base_type=
-        ns.follow_tag(to_c_enum_tag_type(op_type)).subtype();
+      const typet &base_type =
+        to_c_enum_type(ns.follow_tag(to_c_enum_tag_type(op_type))).subtype();
       if(base_type.id()==ID_signedbv || base_type.id()==ID_unsignedbv)
       {
         // enum constants use the representation of their base type
@@ -831,8 +829,9 @@ bool simplify_exprt::simplify_if_implies(
       else if(type_id==ID_unsignedbv)
       {
         const mp_integer i1, i2;
-        if(binary2integer(cond.op1().get_string(ID_value), false)>=
-           binary2integer(expr.op1().get_string(ID_value), false))
+        if(
+          bv2integer(cond.op1().get_string(ID_value), false) >=
+          bv2integer(expr.op1().get_string(ID_value), false))
         {
           new_truth = true;
           return false;
@@ -841,8 +840,9 @@ bool simplify_exprt::simplify_if_implies(
       else if(type_id==ID_signedbv)
       {
         const mp_integer i1, i2;
-        if(binary2integer(cond.op1().get_string(ID_value), true)>=
-           binary2integer(expr.op1().get_string(ID_value), true))
+        if(
+          bv2integer(cond.op1().get_string(ID_value), true) >=
+          bv2integer(expr.op1().get_string(ID_value), true))
         {
           new_truth = true;
           return false;
@@ -867,8 +867,9 @@ bool simplify_exprt::simplify_if_implies(
       else if(type_id==ID_unsignedbv)
       {
         const mp_integer i1, i2;
-        if(binary2integer(cond.op1().get_string(ID_value), false)<=
-           binary2integer(expr.op1().get_string(ID_value), false))
+        if(
+          bv2integer(cond.op1().get_string(ID_value), false) <=
+          bv2integer(expr.op1().get_string(ID_value), false))
         {
           new_truth = true;
           return false;
@@ -877,8 +878,9 @@ bool simplify_exprt::simplify_if_implies(
       else if(type_id==ID_signedbv)
       {
         const mp_integer i1, i2;
-        if(binary2integer(cond.op1().get_string(ID_value), true)<=
-           binary2integer(expr.op1().get_string(ID_value), true))
+        if(
+          bv2integer(cond.op1().get_string(ID_value), true) <=
+          bv2integer(expr.op1().get_string(ID_value), true))
         {
           new_truth = true;
           return false;
@@ -1232,7 +1234,7 @@ bool simplify_exprt::get_values(
   if(expr.is_constant())
   {
     mp_integer int_value;
-    if(to_integer(expr, int_value))
+    if(to_integer(to_constant_expr(expr), int_value))
       return true;
 
     value_list.insert(int_value);
@@ -1251,7 +1253,7 @@ bool simplify_exprt::get_values(
   return true;
 }
 
-bool simplify_exprt::simplify_lambda(exprt &expr)
+bool simplify_exprt::simplify_lambda(exprt &)
 {
   bool result=true;
 
@@ -1365,17 +1367,13 @@ bool simplify_exprt::simplify_update(exprt &expr)
     {
       const irep_idt &component_name=
         e.get(ID_component_name);
-
-      if(!to_struct_type(value_ptr_type).
-         has_component(component_name))
+      const struct_typet &value_ptr_struct_type =
+        to_struct_type(value_ptr_type);
+      if(!value_ptr_struct_type.has_component(component_name))
         return true;
-
-      std::size_t number=to_struct_type(value_ptr_type).
-        component_number(component_name);
-
-      assert(number<value_ptr->operands().size());
-
-      value_ptr=&value_ptr->operands()[number];
+      auto &designator_as_struct_expr = to_struct_expr(*value_ptr);
+      value_ptr = &designator_as_struct_expr.component(component_name, ns);
+      CHECK_RETURN(value_ptr->is_not_nil());
     }
     else
       return true; // give up, unknown designator
@@ -1407,16 +1405,13 @@ bool simplify_exprt::simplify_object(exprt &expr)
   }
   else if(expr.id()==ID_typecast)
   {
-    const typet &op_type=ns.follow(expr.op0().type());
-
-    assert(expr.operands().size()==1);
+    auto const &typecast_expr = to_typecast_expr(expr);
+    const typet &op_type = ns.follow(typecast_expr.op().type());
 
     if(op_type.id()==ID_pointer)
     {
       // cast from pointer to pointer
-      exprt tmp;
-      tmp.swap(expr.op0());
-      expr.swap(tmp);
+      expr = typecast_expr.op();
       simplify_object(expr);
       return false;
     }
@@ -1427,10 +1422,12 @@ bool simplify_exprt::simplify_object(exprt &expr)
       // We do a bit of special treatment for (TYPE *)(a+(int)&o) and
       // (TYPE *)(a+(int)((T*)&o+x)), which are re-written to '&o'.
 
-      exprt tmp=expr.op0();
-      if(tmp.id()==ID_plus && tmp.operands().size()==2)
+      const exprt &casted_expr = typecast_expr.op();
+      if(casted_expr.id() == ID_plus && casted_expr.operands().size() == 2)
       {
-        exprt cand=tmp.op0().id()==ID_typecast?tmp.op0():tmp.op1();
+        const exprt &cand = casted_expr.op0().id() == ID_typecast
+                              ? casted_expr.op0()
+                              : casted_expr.op1();
 
         if(cand.id()==ID_typecast &&
            cand.operands().size()==1 &&
@@ -1487,7 +1484,9 @@ exprt simplify_exprt::bits2expr(
   // bits start at lowest memory address
   const typet &type=ns.follow(_type);
 
-  if(pointer_offset_bits(type, ns)!=bits.size())
+  auto type_bits = pointer_offset_bits(type, ns);
+
+  if(!type_bits.has_value() || *type_bits != bits.size())
     return nil_exprt();
 
   if(type.id()==ID_unsignedbv ||
@@ -1506,7 +1505,7 @@ exprt simplify_exprt::bits2expr(
   }
   else if(type.id()==ID_c_enum)
   {
-    exprt val=bits2expr(bits, type.subtype(), little_endian);
+    exprt val = bits2expr(bits, to_c_enum_type(type).subtype(), little_endian);
     val.type()=type;
     return val;
   }
@@ -1544,20 +1543,21 @@ exprt simplify_exprt::bits2expr(
     mp_integer m_offset_bits=0;
     for(const auto &component : components)
     {
-      mp_integer m_size=pointer_offset_bits(component.type(), ns);
-      assert(m_size>=0);
+      const auto m_size = pointer_offset_bits(component.type(), ns);
+      CHECK_RETURN(m_size.has_value() && *m_size>=0);
 
       std::string comp_bits=
         std::string(
           bits,
           integer2size_t(m_offset_bits),
-          integer2size_t(m_size));
+          integer2size_t(*m_size));
+
       exprt comp=bits2expr(comp_bits, component.type(), little_endian);
       if(comp.is_nil())
         return nil_exprt();
       result.move_to_operands(comp);
 
-      m_offset_bits+=m_size;
+      m_offset_bits += *m_size;
     }
 
     return result;
@@ -1571,9 +1571,10 @@ exprt simplify_exprt::bits2expr(
       UNREACHABLE;
     std::size_t n_el=integer2size_t(size);
 
-    std::size_t el_size=
-      integer2size_t(pointer_offset_bits(type.subtype(), ns));
-    assert(el_size>0);
+    const auto el_size_opt = pointer_offset_bits(array_type.subtype(), ns);
+    CHECK_RETURN(el_size_opt.has_value() && *el_size_opt > 0);
+
+    const std::size_t el_size = integer2size_t(*el_size_opt);
 
     array_exprt result(array_type);
     result.reserve_operands(n_el);
@@ -1581,7 +1582,7 @@ exprt simplify_exprt::bits2expr(
     for(std::size_t i=0; i<n_el; ++i)
     {
       std::string el_bits=std::string(bits, i*el_size, el_size);
-      exprt el=bits2expr(el_bits, type.subtype(), little_endian);
+      exprt el = bits2expr(el_bits, array_type.subtype(), little_endian);
       if(el.is_nil())
         return nil_exprt();
       result.move_to_operands(el);
@@ -1593,7 +1594,7 @@ exprt simplify_exprt::bits2expr(
   return nil_exprt();
 }
 
-std::string simplify_exprt::expr2bits(
+optionalt<std::string> simplify_exprt::expr2bits(
   const exprt &expr,
   bool little_endian)
 {
@@ -1630,11 +1631,12 @@ std::string simplify_exprt::expr2bits(
     std::string result;
     forall_operands(it, expr)
     {
-      std::string tmp=expr2bits(*it, little_endian);
-      if(tmp.empty())
-        return tmp; // failed
-      result+=tmp;
+      auto tmp=expr2bits(*it, little_endian);
+      if(!tmp.has_value())
+        return {}; // failed
+      result+=tmp.value();
     }
+
     return result;
   }
   else if(expr.id()==ID_array)
@@ -1642,15 +1644,16 @@ std::string simplify_exprt::expr2bits(
     std::string result;
     forall_operands(it, expr)
     {
-      std::string tmp=expr2bits(*it, little_endian);
-      if(tmp.empty())
-        return tmp; // failed
-      result+=tmp;
+      auto tmp=expr2bits(*it, little_endian);
+      if(!tmp.has_value())
+        return {}; // failed
+      result+=tmp.value();
     }
+
     return result;
   }
 
-  return "";
+  return {};
 }
 
 bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
@@ -1666,7 +1669,7 @@ bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
     return false;
   }
 
-  const mp_integer el_size=pointer_offset_bits(expr.type(), ns);
+  const auto el_size = pointer_offset_bits(expr.type(), ns);
 
   // byte_extract(byte_extract(root, offset1), offset2) =>
   // byte_extract(root, offset1+offset2)
@@ -1698,8 +1701,9 @@ bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
 
       return false;
     }
-    else if(el_size>=0 &&
-            el_size<=pointer_offset_bits(expr.op().op2().type(), ns))
+    else if(
+      el_size.has_value() &&
+      *el_size <= pointer_offset_bits(expr.op().op2().type(), ns))
     {
       expr.op()=expr.op().op2();
       expr.offset()=from_integer(0, expr.offset().type());
@@ -1730,25 +1734,29 @@ bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
 
   // no proper simplification for expr.type()==void
   // or types of unknown size
-  if(el_size<=0)
+  if(!el_size.has_value() || *el_size == 0)
     return true;
 
   if(expr.op().id()==ID_array_of &&
-     expr.op().op0().id()==ID_constant)
+     to_array_of_expr(expr.op()).op().id()==ID_constant)
   {
-    std::string const_bits=
-      expr2bits(expr.op().op0(),
+    const auto const_bits_opt=
+      expr2bits(to_array_of_expr(expr.op()).op(),
                 byte_extract_id()==ID_byte_extract_little_endian);
 
+    if(!const_bits_opt.has_value())
+      return true;
+
+    std::string const_bits=const_bits_opt.value();
+
+    DATA_INVARIANT(!const_bits.empty(), "bit representation must be non-empty");
+
     // double the string until we have sufficiently many bits
-    while(mp_integer(const_bits.size())<offset*8+el_size)
+    while(mp_integer(const_bits.size()) < offset * 8 + *el_size)
       const_bits+=const_bits;
 
-    std::string el_bits=
-      std::string(
-        const_bits,
-        integer2size_t(offset*8),
-        integer2size_t(el_size));
+    std::string el_bits = std::string(
+      const_bits, integer2size_t(offset * 8), integer2size_t(*el_size));
 
     exprt tmp=
       bits2expr(
@@ -1764,9 +1772,9 @@ bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
   }
 
   // in some cases we even handle non-const array_of
-  if(expr.op().id()==ID_array_of &&
-     (offset*8)%el_size==0 &&
-     el_size<=pointer_offset_bits(expr.op().op0().type(), ns))
+  if(
+    expr.op().id() == ID_array_of && (offset * 8) % (*el_size) == 0 &&
+    *el_size <= pointer_offset_bits(expr.op().op0().type(), ns))
   {
     expr.op()=index_exprt(expr.op(), expr.offset());
     expr.offset()=from_integer(0, expr.offset().type());
@@ -1776,17 +1784,19 @@ bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
   }
 
   // extract bits of a constant
-  std::string bits=
+  const auto bits=
     expr2bits(expr.op(), expr.id()==ID_byte_extract_little_endian);
+
   // exact match of length only - otherwise we might lose bits of
   // flexible array members at the end of a struct
-  if(mp_integer(bits.size())==el_size+offset*8)
+  if(bits.has_value() &&
+     mp_integer(bits->size()) == el_size.value() + offset * 8)
   {
     std::string bits_cut=
       std::string(
-        bits,
+        bits.value(),
         integer2size_t(offset*8),
-        integer2size_t(el_size));
+        integer2size_t(el_size.value()));
 
     exprt tmp=
       bits2expr(
@@ -1818,11 +1828,12 @@ bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
         op_type_ptr->id()==ID_array;
         op_type_ptr=&(ns.follow(*op_type_ptr).subtype()))
     {
-      // no arrays of zero-sized objects
-      assert(el_size>0);
-      // no arrays of non-byte sized objects
-      assert(el_size%8==0);
-      mp_integer el_bytes=el_size/8;
+      DATA_INVARIANT(*el_size > 0, "arrays must not have zero-sized objects");
+      DATA_INVARIANT(
+        (*el_size) % 8 == 0,
+        "array elements have a size in bits which is a multiple of bytes");
+
+      mp_integer el_bytes = (*el_size) / 8;
 
       if(base_type_eq(expr.type(), op_type_ptr->subtype(), ns) ||
          (expr.type().id()==ID_pointer &&
@@ -1848,12 +1859,12 @@ bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
       }
       else
       {
-        mp_integer sub_size=pointer_offset_size(op_type_ptr->subtype(), ns);
+        auto sub_size = pointer_offset_size(op_type_ptr->subtype(), ns);
 
-        if(sub_size>0)
+        if(sub_size.has_value() && *sub_size > 0)
         {
-          mp_integer index=offset/sub_size;
-          offset%=sub_size;
+          mp_integer index = offset / (*sub_size);
+          offset %= (*sub_size);
 
           result=
             index_exprt(
@@ -1873,14 +1884,13 @@ bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
     mp_integer m_offset_bits=0;
     for(const auto &component : components)
     {
-      mp_integer m_size=
-        pointer_offset_bits(component.type(), ns);
-      if(m_size<=0)
+      auto m_size = pointer_offset_bits(component.type(), ns);
+      if(!m_size.has_value() || *m_size <= 0)
         break;
 
-      if(offset*8==m_offset_bits &&
-         el_size==m_size &&
-         base_type_eq(expr.type(), component.type(), ns))
+      if(
+        offset * 8 == m_offset_bits && *el_size == *m_size &&
+        base_type_eq(expr.type(), component.type(), ns))
       {
         member_exprt member(expr.op(), component.get_name(), component.type());
         simplify_member(member);
@@ -1888,9 +1898,10 @@ bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
 
         return false;
       }
-      else if(offset*8>=m_offset_bits &&
-              offset*8+el_size<=m_offset_bits+m_size &&
-              m_offset_bits%8==0)
+      else if(
+        offset * 8 >= m_offset_bits &&
+        offset * 8 + *el_size <= m_offset_bits + *m_size &&
+        m_offset_bits % 8 == 0)
       {
         expr.op()=
           member_exprt(expr.op(), component.get_name(), component.type());
@@ -1902,7 +1913,7 @@ bool simplify_exprt::simplify_byte_extract(byte_extract_exprt &expr)
         return false;
       }
 
-      m_offset_bits+=m_size;
+      m_offset_bits += *m_size;
     }
   }
 
@@ -1924,14 +1935,13 @@ bool simplify_exprt::simplify_byte_update(byte_update_exprt &expr)
   const exprt &root=expr.op();
   const exprt &offset=expr.offset();
   const exprt &value=expr.value();
-  const mp_integer val_size=pointer_offset_bits(value.type(), ns);
-  const mp_integer root_size=pointer_offset_bits(root.type(), ns);
+  const auto val_size = pointer_offset_bits(value.type(), ns);
+  const auto root_size = pointer_offset_bits(root.type(), ns);
 
   // byte update of full object is byte_extract(new value)
-  if(offset.is_zero() &&
-     val_size>0 &&
-     root_size>0 &&
-     val_size>=root_size)
+  if(
+    offset.is_zero() && val_size.has_value() && *val_size > 0 &&
+    root_size.has_value() && *root_size > 0 && *val_size >= *root_size)
   {
     byte_extract_exprt be(
       expr.id()==ID_byte_update_little_endian ?
@@ -1987,10 +1997,10 @@ bool simplify_exprt::simplify_byte_update(byte_update_exprt &expr)
         else
         {
           // new offset = offset + component offset
-          mp_integer i=member_offset(struct_type, component_name, ns);
-          if(i!=-1)
+          auto i = member_offset(struct_type, component_name, ns);
+          if(i.has_value())
           {
-            exprt compo_offset = from_integer(i, offset.type());
+            exprt compo_offset = from_integer(*i, offset.type());
             plus_exprt new_offset(offset, compo_offset);
             simplify_node(new_offset);
             exprt new_value(with.op2());
@@ -2003,11 +2013,11 @@ bool simplify_exprt::simplify_byte_update(byte_update_exprt &expr)
       }
       else if(tp.id()==ID_array)
       {
-        mp_integer i=pointer_offset_size(tp.subtype(), ns);
-        if(i!=-1)
+        auto i = pointer_offset_size(to_array_type(tp).subtype(), ns);
+        if(i.has_value())
         {
           const exprt &index=with.where();
-          mult_exprt index_offset(index, from_integer(i, index.type()));
+          mult_exprt index_offset(index, from_integer(*i, index.type()));
           simplify_node(index_offset);
 
           // index_offset may need a typecast
@@ -2038,7 +2048,7 @@ bool simplify_exprt::simplify_byte_update(byte_update_exprt &expr)
   const typet &op_type=ns.follow(root.type());
 
   // size must be known
-  if(val_size<=0)
+  if(!val_size.has_value() || *val_size == 0)
     return true;
 
   // Are we updating (parts of) a struct? Do individual member updates
@@ -2048,8 +2058,7 @@ bool simplify_exprt::simplify_byte_update(byte_update_exprt &expr)
     exprt result_expr;
     result_expr.make_nil();
 
-    mp_integer update_size=
-      pointer_offset_size(value.type(), ns);
+    auto update_size = pointer_offset_size(value.type(), ns);
 
     const struct_typet &struct_type=
       to_struct_type(op_type);
@@ -2058,27 +2067,36 @@ bool simplify_exprt::simplify_byte_update(byte_update_exprt &expr)
 
     for(const auto &component : components)
     {
-      mp_integer m_offset=
-        member_offset(struct_type, component.get_name(), ns);
-      mp_integer m_size_bits=pointer_offset_bits(component.type(), ns);
-      mp_integer m_size_bytes=m_size_bits/8;
+      auto m_offset = member_offset(struct_type, component.get_name(), ns);
 
-      // can we determine the current offset, and is it a byte-sized
-      // member?
-      if(m_offset<0 ||
-         m_size_bits<=0 ||
-         m_size_bits%8!=0)
+      auto m_size_bits = pointer_offset_bits(component.type(), ns);
+
+      // can we determine the current offset?
+      if(!m_offset.has_value())
       {
         result_expr.make_nil();
         break;
       }
+
+      // is it a byte-sized member?
+      if(!m_size_bits.has_value() || *m_size_bits == 0 || (*m_size_bits) % 8 != 0)
+      {
+        result_expr.make_nil();
+        break;
+      }
+
+      mp_integer m_size_bytes = (*m_size_bits) / 8;
+
       // is that member part of the update?
-      else if(m_offset+m_size_bytes<=offset_int)
+      if(*m_offset + m_size_bytes <= offset_int)
         continue;
       // are we done updating?
-      else if(update_size>0 &&
-              m_offset>=offset_int+update_size)
+      else if(
+        update_size.has_value() && *update_size > 0 &&
+        *m_offset >= offset_int + *update_size)
+      {
         break;
+      }
 
       if(result_expr.is_nil())
         result_expr=expr.op();
@@ -2088,21 +2106,22 @@ bool simplify_exprt::simplify_byte_update(byte_update_exprt &expr)
       result_expr=with_exprt(result_expr, member_name, nil_exprt());
 
       // are we updating on member boundaries?
-      if(m_offset<offset_int ||
-         (m_offset==offset_int &&
-          update_size>0 &&
-          m_size_bytes>update_size))
+      if(
+        m_offset < offset_int ||
+        (m_offset == offset_int && update_size.has_value() &&
+         *update_size > 0 && m_size_bytes > *update_size))
       {
         byte_update_exprt v(
           ID_byte_update_little_endian,
           member_exprt(root, component.get_name(), component.type()),
-          from_integer(offset_int-m_offset, offset.type()),
+          from_integer(offset_int - *m_offset, offset.type()),
           value);
 
         to_with_expr(result_expr).new_value().swap(v);
       }
-      else if(update_size>0 &&
-              m_offset+m_size_bytes>offset_int+update_size)
+      else if(
+        update_size.has_value() && *update_size > 0 &&
+        *m_offset + m_size_bytes > offset_int + *update_size)
       {
         // we don't handle this for the moment
         result_expr.make_nil();
@@ -2113,7 +2132,7 @@ bool simplify_exprt::simplify_byte_update(byte_update_exprt &expr)
         byte_extract_exprt v(
           ID_byte_extract_little_endian,
           value,
-          from_integer(m_offset-offset_int, offset.type()),
+          from_integer(*m_offset - offset_int, offset.type()),
           component.type());
 
         to_with_expr(result_expr).new_value().swap(v);
@@ -2141,24 +2160,28 @@ bool simplify_exprt::simplify_byte_update(byte_update_exprt &expr)
   // byte_extract
   if(root.id()==ID_array)
   {
-    mp_integer el_size=pointer_offset_bits(op_type.subtype(), ns);
-    if(el_size<=0 || el_size%8!=0 || val_size%8!=0)
+    auto el_size = pointer_offset_bits(op_type.subtype(), ns);
+
+    if(!el_size.has_value() || *el_size == 0 ||
+       (*el_size) % 8 != 0 || (*val_size) % 8 != 0)
+    {
       return true;
+    }
 
     exprt result=root;
 
     mp_integer m_offset_bits=0, val_offset=0;
     Forall_operands(it, result)
     {
-      if(offset_int*8+val_size<=m_offset_bits)
+      if(offset_int * 8 + (*val_size) <= m_offset_bits)
         break;
 
-      if(offset_int*8<m_offset_bits+el_size)
+      if(offset_int * 8 < m_offset_bits + *el_size)
       {
-        mp_integer bytes_req=(m_offset_bits+el_size)/8-offset_int;
+        mp_integer bytes_req = (m_offset_bits + *el_size) / 8 - offset_int;
         bytes_req-=val_offset;
-        if(val_offset+bytes_req>val_size/8)
-          bytes_req=val_size/8-val_offset;
+        if(val_offset + bytes_req > (*val_size) / 8)
+          bytes_req = (*val_size) / 8 - val_offset;
 
         byte_extract_exprt new_val(
           byte_extract_id(),
@@ -2178,7 +2201,7 @@ bool simplify_exprt::simplify_byte_update(byte_update_exprt &expr)
         val_offset+=bytes_req;
       }
 
-      m_offset_bits+=el_size;
+      m_offset_bits += *el_size;
     }
 
     expr.swap(result);
@@ -2296,7 +2319,7 @@ bool simplify_exprt::simplify_node(exprt &expr)
     result=simplify_unary_plus(expr) && result;
   else if(expr.id()==ID_not)
     result=simplify_not(expr) && result;
-  else if(expr.id()==ID_implies || expr.id()==ID_iff ||
+  else if(expr.id()==ID_implies ||
           expr.id()==ID_or      || expr.id()==ID_xor ||
           expr.id()==ID_and)
     result=simplify_boolean(expr) && result;

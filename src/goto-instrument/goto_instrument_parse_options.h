@@ -20,12 +20,14 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <goto-programs/goto_functions.h>
 #include <goto-programs/remove_calls_no_body.h>
 #include <goto-programs/remove_const_function_pointers.h>
+#include <goto-programs/replace_calls.h>
 #include <goto-programs/show_goto_functions.h>
 #include <goto-programs/show_properties.h>
 
 #include <analyses/goto_check.h>
 
 #include <goto-programs/generate_function_bodies.h>
+#include "aggressive_slicer.h"
 
 #include "count_eloc.h"
 
@@ -69,6 +71,7 @@ Author: Daniel Kroening, kroening@kroening.com
   "(show-struct-alignment)(interval-analysis)(show-intervals)" \
   "(show-uninitialized)(show-locations)" \
   "(full-slice)(reachability-slice)(slice-global-inits)" \
+  "(fp-reachability-slice):" \
   "(inline)(partial-inline)(function-inline):(log):(no-caching)" \
   OPT_REMOVE_CONST_FUNCTION_POINTERS \
   "(print-internal-representation)" \
@@ -90,11 +93,15 @@ Author: Daniel Kroening, kroening@kroening.com
   "(show-threaded)(list-calls-args)" \
   "(undefined-function-is-assume-false)" \
   "(remove-function-body):"\
+  OPT_AGGRESSIVE_SLICER \
   OPT_FLUSH \
   "(splice-call):" \
   OPT_REMOVE_CALLS_NO_BODY \
   OPT_REPLACE_FUNCTION_BODY \
-  OPT_GOTO_PROGRAM_STATS
+  OPT_GOTO_PROGRAM_STATS \
+  "(show-local-safe-pointers)(show-safe-dereferences)" \
+  OPT_REPLACE_CALLS \
+  // empty last line
 
 // clang-format on
 

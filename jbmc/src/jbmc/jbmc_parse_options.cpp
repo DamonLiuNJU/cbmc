@@ -16,10 +16,11 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <iostream>
 #include <memory>
 
-#include <util/exit_codes.h>
 #include <util/config.h>
-#include <util/unicode.h>
+#include <util/exit_codes.h>
 #include <util/invariant.h>
+#include <util/unicode.h>
+#include <util/version.h>
 
 #include <langapi/language.h>
 
@@ -60,25 +61,41 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <java_bytecode/replace_java_nondet.h>
 #include <java_bytecode/simple_method_stubbing.h>
 
-#include <cbmc/version.h>
-
-jbmc_parse_optionst::jbmc_parse_optionst(int argc, const char **argv):
-  parse_options_baset(JBMC_OPTIONS, argc, argv),
-  messaget(ui_message_handler),
-  ui_message_handler(cmdline, "JBMC " CBMC_VERSION),
-  path_strategy_chooser()
+jbmc_parse_optionst::jbmc_parse_optionst(int argc, const char **argv)
+  : parse_options_baset(JBMC_OPTIONS, argc, argv),
+    messaget(ui_message_handler),
+    ui_message_handler(cmdline, std::string("JBMC ") + CBMC_VERSION),
+    path_strategy_chooser()
 {
 }
 
 ::jbmc_parse_optionst::jbmc_parse_optionst(
   int argc,
   const char **argv,
-  const std::string &extra_options):
-  parse_options_baset(JBMC_OPTIONS+extra_options, argc, argv),
-  messaget(ui_message_handler),
-  ui_message_handler(cmdline, "JBMC " CBMC_VERSION),
-  path_strategy_chooser()
+  const std::string &extra_options)
+  : parse_options_baset(JBMC_OPTIONS + extra_options, argc, argv),
+    messaget(ui_message_handler),
+    ui_message_handler(cmdline, std::string("JBMC ") + CBMC_VERSION),
+    path_strategy_chooser()
 {
+}
+
+void jbmc_parse_optionst::set_default_options(optionst &options)
+{
+  // Default true
+  options.set_option("assertions", true);
+  options.set_option("assumptions", true);
+  options.set_option("built-in-assertions", true);
+  options.set_option("lazy-methods", true);
+  options.set_option("pretty-names", true);
+  options.set_option("propagation", true);
+  options.set_option("refine-strings", true);
+  options.set_option("sat-preprocessor", true);
+  options.set_option("simplify", true);
+  options.set_option("simplify-if", true);
+
+  // Other default
+  options.set_option("arrays-uf", "auto");
 }
 
 void jbmc_parse_optionst::get_command_line_options(optionst &options)
@@ -88,6 +105,10 @@ void jbmc_parse_optionst::get_command_line_options(optionst &options)
     usage_error();
     exit(1); // should contemplate EX_USAGE from sysexits.h
   }
+
+  jbmc_parse_optionst::set_default_options(options);
+  parse_java_language_options(cmdline, options);
+  parse_object_factory_options(cmdline, options);
 
   if(cmdline.isset("show-symex-strategies"))
   {
@@ -103,23 +124,20 @@ void jbmc_parse_optionst::get_command_line_options(optionst &options)
   if(cmdline.isset("show-vcc"))
     options.set_option("show-vcc", true);
 
-  if(cmdline.isset("cover"))
-    parse_cover_options(cmdline, options);
+  if(cmdline.isset("nondet-static"))
+    options.set_option("nondet-static", true);
 
   if(cmdline.isset("no-simplify"))
     options.set_option("simplify", false);
-  else
-    options.set_option("simplify", true);
 
   if(cmdline.isset("stop-on-fail") ||
      cmdline.isset("dimacs") ||
      cmdline.isset("outfile"))
     options.set_option("stop-on-fail", true);
-  else
-    options.set_option("stop-on-fail", false);
 
-  if(cmdline.isset("trace") ||
-     cmdline.isset("stop-on-fail"))
+  if(
+    cmdline.isset("trace") || cmdline.isset("stack-trace") ||
+    cmdline.isset("stop-on-fail"))
     options.set_option("trace", true);
 
   if(cmdline.isset("localize-faults"))
@@ -149,8 +167,6 @@ void jbmc_parse_optionst::get_command_line_options(optionst &options)
   // constant propagation
   if(cmdline.isset("no-propagation"))
     options.set_option("propagation", false);
-  else
-    options.set_option("propagation", true);
 
   // transform self loops to assumptions
   options.set_option(
@@ -167,28 +183,14 @@ void jbmc_parse_optionst::get_command_line_options(optionst &options)
   // check assertions
   if(cmdline.isset("no-assertions"))
     options.set_option("assertions", false);
-  else
-    options.set_option("assertions", true);
 
   // use assumptions
   if(cmdline.isset("no-assumptions"))
     options.set_option("assumptions", false);
-  else
-    options.set_option("assumptions", true);
-
-  // magic error label
-  if(cmdline.isset("error-label"))
-    options.set_option("error-label", cmdline.get_values("error-label"));
 
   // generate unwinding assertions
-  if(cmdline.isset("cover"))
-    options.set_option("unwinding-assertions", false);
-  else
-  {
-    options.set_option(
-      "unwinding-assertions",
-      cmdline.isset("unwinding-assertions"));
-  }
+  if(cmdline.isset("unwinding-assertions"))
+    options.set_option("unwinding-assertions", true);
 
   // generate unwinding assumptions otherwise
   options.set_option(
@@ -211,15 +213,11 @@ void jbmc_parse_optionst::get_command_line_options(optionst &options)
   // simplify if conditions and branches
   if(cmdline.isset("no-simplify-if"))
     options.set_option("simplify-if", false);
-  else
-    options.set_option("simplify-if", true);
 
   if(cmdline.isset("arrays-uf-always"))
     options.set_option("arrays-uf", "always");
   else if(cmdline.isset("arrays-uf-never"))
     options.set_option("arrays-uf", "never");
-  else
-    options.set_option("arrays-uf", "auto");
 
   if(cmdline.isset("dimacs"))
     options.set_option("dimacs", true);
@@ -243,13 +241,23 @@ void jbmc_parse_optionst::get_command_line_options(optionst &options)
     options.set_option("refine-arithmetic", true);
   }
 
-  if(cmdline.isset("refine-strings"))
+  if(cmdline.isset("no-refine-strings"))
+    options.set_option("refine-strings", false);
+
+  if(cmdline.isset("string-printable"))
+    options.set_option("string-printable", true);
+
+  if(cmdline.isset("no-refine-strings") && cmdline.isset("string-printable"))
   {
-    options.set_option("refine-strings", true);
-    options.set_option("string-printable", cmdline.isset("string-printable"));
-    if(cmdline.isset("string-max-length"))
-      options.set_option(
-        "string-max-length", cmdline.get_value("string-max-length"));
+    warning() << "--string-printable ignored due to --no-refine-strings" << eom;
+  }
+
+  if(
+    cmdline.isset("no-refine-strings") &&
+    cmdline.isset("max-nondet-string-length"))
+  {
+    warning() << "--max-nondet-string-length ignored due to "
+              << "--no-refine-strings" << eom;
   }
 
   if(cmdline.isset("max-node-refinement"))
@@ -258,22 +266,15 @@ void jbmc_parse_optionst::get_command_line_options(optionst &options)
       cmdline.get_value("max-node-refinement"));
 
   // SMT Options
-  bool version_set=false;
 
   if(cmdline.isset("smt1"))
   {
-    options.set_option("smt1", true);
-    options.set_option("smt2", false);
-    version_set=true;
+    error() << "--smt1 is no longer supported" << eom;
+    exit(CPROVER_EXIT_USAGE_ERROR);
   }
 
   if(cmdline.isset("smt2"))
-  {
-    // If both are given, smt2 takes precedence
-    options.set_option("smt1", false);
     options.set_option("smt2", true);
-    version_set=true;
-  }
 
   if(cmdline.isset("fpa"))
     options.set_option("fpa", true);
@@ -283,83 +284,52 @@ void jbmc_parse_optionst::get_command_line_options(optionst &options)
   if(cmdline.isset("boolector"))
   {
     options.set_option("boolector", true), solver_set=true;
-    if(!version_set)
-      options.set_option("smt2", true), version_set=true;
+    options.set_option("smt2", true);
   }
 
   if(cmdline.isset("mathsat"))
   {
     options.set_option("mathsat", true), solver_set=true;
-    if(!version_set)
-      options.set_option("smt2", true), version_set=true;
-  }
-
-  if(cmdline.isset("cvc3"))
-  {
-    options.set_option("cvc3", true), solver_set=true;
-    if(!version_set)
-      options.set_option("smt1", true), version_set=true;
+    options.set_option("smt2", true);
   }
 
   if(cmdline.isset("cvc4"))
   {
     options.set_option("cvc4", true), solver_set=true;
-    if(!version_set)
-      options.set_option("smt2", true), version_set=true;
+    options.set_option("smt2", true);
   }
 
   if(cmdline.isset("yices"))
   {
     options.set_option("yices", true), solver_set=true;
-    if(!version_set)
-      options.set_option("smt2", true), version_set=true;
+    options.set_option("smt2", true);
   }
 
   if(cmdline.isset("z3"))
   {
     options.set_option("z3", true), solver_set=true;
-    if(!version_set)
-      options.set_option("smt2", true), version_set=true;
+    options.set_option("smt2", true);
   }
 
-  if(cmdline.isset("opensmt"))
-  {
-    options.set_option("opensmt", true), solver_set=true;
-    if(!version_set)
-      options.set_option("smt1", true), version_set=true;
-  }
-
-  if(version_set && !solver_set)
+  if(cmdline.isset("smt2") && !solver_set)
   {
     if(cmdline.isset("outfile"))
     {
       // outfile and no solver should give standard compliant SMT-LIB
-      options.set_option("generic", true), solver_set=true;
+      options.set_option("generic", true);
     }
     else
     {
-      if(options.get_bool_option("smt1"))
-      {
-        options.set_option("boolector", true), solver_set=true;
-      }
-      else
-      {
-        INVARIANT(options.get_bool_option("smt2"), "smt2 set");
-        options.set_option("z3", true), solver_set=true;
-      }
+      // the default smt2 solver
+      options.set_option("z3", true);
     }
   }
-
-  // Either have solver and standard version set, or neither.
-  INVARIANT(version_set==solver_set, "solver and version set");
 
   if(cmdline.isset("beautify"))
     options.set_option("beautify", true);
 
   if(cmdline.isset("no-sat-preprocessor"))
     options.set_option("sat-preprocessor", false);
-  else
-    options.set_option("sat-preprocessor", true);
 
   options.set_option(
     "pretty-names",
@@ -382,13 +352,15 @@ void jbmc_parse_optionst::get_command_line_options(optionst &options)
 
   PARSE_OPTIONS_GOTO_TRACE(cmdline, options);
 
+  if(cmdline.isset("no-lazy-methods"))
+    options.set_option("lazy-methods", false);
+
   if(cmdline.isset("symex-driven-lazy-loading"))
   {
     options.set_option("symex-driven-lazy-loading", true);
     for(const char *opt :
       { "nondet-static",
         "full-slice",
-        "lazy-methods",
         "reachability-slice",
         "reachability-slice-fb" })
     {
@@ -446,9 +418,8 @@ int jbmc_parse_optionst::doit()
   //
   // Print a banner
   //
-  status() << "JBMC version " CBMC_VERSION " "
-           << sizeof(void *)*8 << "-bit "
-           << config.this_architecture() << " "
+  status() << "JBMC version " << CBMC_VERSION << " " << sizeof(void *) * 8
+           << "-bit " << config.this_architecture() << " "
            << config.this_operating_system() << eom;
 
   register_language(new_ansi_c_language);
@@ -487,7 +458,7 @@ int jbmc_parse_optionst::doit()
       return 6;
     }
 
-    language->get_language_options(cmdline);
+    language->set_language_options(options);
     language->set_message_handler(get_message_handler());
 
     status() << "Parsing " << filename << eom;
@@ -508,34 +479,20 @@ int jbmc_parse_optionst::doit()
     configure_bmc = [](bmct &bmc, const symbol_tablet &symbol_table) {
       bmc.add_loop_unwind_handler(
         [&symbol_table](
-          const irep_idt &function_id,
+          const goto_symex_statet::call_stackt &context,
           unsigned loop_number,
           unsigned unwind,
           unsigned &max_unwind) {
           return java_enum_static_init_unwind_handler(
-            function_id,
-            loop_number,
-            unwind,
-            max_unwind,
-            symbol_table);
+            context, loop_number, unwind, max_unwind, symbol_table);
         });
     };
   }
 
-  object_factory_params.max_nondet_array_length =
-    cmdline.isset("java-max-input-array-length")
-      ? std::stoul(cmdline.get_value("java-max-input-array-length"))
-      : MAX_NONDET_ARRAY_LENGTH_DEFAULT;
-  object_factory_params.max_nondet_string_length =
-    cmdline.isset("string-max-input-length")
-      ? std::stoul(cmdline.get_value("string-max-input-length"))
-      : MAX_NONDET_STRING_LENGTH;
-  object_factory_params.max_nondet_tree_depth =
-    cmdline.isset("java-max-input-tree-depth")
-      ? std::stoul(cmdline.get_value("java-max-input-tree-depth"))
-      : MAX_NONDET_TREE_DEPTH;
+  object_factory_params.set(options);
 
-  stub_objects_are_not_null = cmdline.isset("java-assume-inputs-non-null");
+  stub_objects_are_not_null =
+    options.get_bool_option("java-assume-inputs-non-null");
 
   if(!cmdline.isset("symex-driven-lazy-loading"))
   {
@@ -562,8 +519,7 @@ int jbmc_parse_optionst::doit()
       path_strategy_chooser,
       options,
       goto_model,
-      ui_message_handler.get_ui(),
-      *this,
+      ui_message_handler,
       configure_bmc);
   }
   else
@@ -571,7 +527,7 @@ int jbmc_parse_optionst::doit()
     // Use symex-driven lazy loading:
     lazy_goto_modelt lazy_goto_model=lazy_goto_modelt::from_handler_object(
       *this, options, get_message_handler());
-    lazy_goto_model.initialize(cmdline);
+    lazy_goto_model.initialize(cmdline, options);
 
     // The precise wording of this error matches goto-symex's complaint when no
     // __CPROVER_start exists (if we just go ahead and run it anyway it will
@@ -586,12 +542,6 @@ int jbmc_parse_optionst::doit()
     // particular function:
     add_failed_symbols(lazy_goto_model.symbol_table);
 
-    // If applicable, parse the coverage instrumentation configuration, which
-    // will be used in process_goto_function:
-    cover_config =
-      get_cover_config(
-        options, lazy_goto_model.symbol_table, get_message_handler());
-
     // Provide show-goto-functions and similar dump functions after symex
     // executes. If --paths is active, these dump routines run after every
     // paths iteration. Its return value indicates that if we ran any dump
@@ -602,15 +552,13 @@ int jbmc_parse_optionst::doit()
 
     // The `configure_bmc` callback passed will enable enum-unwind-static if
     // applicable.
-    return
-      bmct::do_language_agnostic_bmc(
-        path_strategy_chooser,
-        options,
-        lazy_goto_model,
-        ui_message_handler.get_ui(),
-        *this,
-        configure_bmc,
-        callback_after_symex);
+    return bmct::do_language_agnostic_bmc(
+      path_strategy_chooser,
+      options,
+      lazy_goto_model,
+      ui_message_handler,
+      configure_bmc,
+      callback_after_symex);
   }
 }
 
@@ -656,15 +604,14 @@ int jbmc_parse_optionst::get_goto_program(
   {
     lazy_goto_modelt lazy_goto_model=lazy_goto_modelt::from_handler_object(
       *this, options, get_message_handler());
-    lazy_goto_model.initialize(cmdline);
+    lazy_goto_model.initialize(cmdline, options);
 
     // Show the class hierarchy
     if(cmdline.isset("show-class-hierarchy"))
     {
       class_hierarchyt hierarchy;
       hierarchy(lazy_goto_model.symbol_table);
-      show_class_hierarchy(
-        hierarchy, get_message_handler(), ui_message_handler.get_ui());
+      show_class_hierarchy(hierarchy, ui_message_handler);
       return CPROVER_EXIT_SUCCESS;
     }
 
@@ -680,7 +627,7 @@ int jbmc_parse_optionst::get_goto_program(
     if(cmdline.isset("show-symbol-table"))
     {
       show_symbol_table(
-        lazy_goto_model.symbol_table, ui_message_handler.get_ui());
+        lazy_goto_model.symbol_table, ui_message_handler);
       return 0;
     }
 
@@ -755,7 +702,7 @@ void jbmc_parse_optionst::process_goto_function(
   try
   {
     // Removal of RTTI inspection:
-    remove_instanceof(goto_function, symbol_table);
+    remove_instanceof(goto_function, symbol_table, get_message_handler());
     // Java virtual functions -> explicit dispatch tables:
     remove_virtual_functions(function);
 
@@ -769,6 +716,7 @@ void jbmc_parse_optionst::process_goto_function(
       remove_exceptions(
         goto_function.body,
         symbol_table,
+        get_message_handler(),
         remove_exceptions_typest::REMOVE_ADDED_INSTANCEOF);
     }
 
@@ -808,20 +756,12 @@ void jbmc_parse_optionst::process_goto_function(
         symbol_table);
     }
 
-    // If using symex-driven function loading we must insert the coverage goals
+    // If using symex-driven function loading we must label the assertions
     // now so symex sees its targets; otherwise we leave this until
     // process_goto_functions, as we haven't run remove_exceptions yet, and that
     // pass alters the CFG.
     if(using_symex_driven_loading)
     {
-      // instrument cover goals
-      if(cmdline.isset("cover"))
-      {
-        INVARIANT(
-          cover_config != nullptr, "cover config should have been parsed");
-        instrument_cover_goals(*cover_config, function, get_message_handler());
-      }
-
       // label the assertions
       label_properties(goto_function.body);
 
@@ -859,7 +799,7 @@ bool jbmc_parse_optionst::show_loaded_functions(
   if(cmdline.isset("show-symbol-table"))
   {
     show_symbol_table(
-      goto_model.get_symbol_table(), ui_message_handler.get_ui());
+      goto_model.get_symbol_table(), ui_message_handler);
     return true;
   }
 
@@ -916,7 +856,9 @@ bool jbmc_parse_optionst::process_goto_functions(
     // remove catch and throw
     // (introduces instanceof but request it is removed)
     remove_exceptions(
-      goto_model, remove_exceptions_typest::REMOVE_ADDED_INSTANCEOF);
+      goto_model,
+      get_message_handler(),
+      remove_exceptions_typest::REMOVE_ADDED_INSTANCEOF);
 
     // instrument library preconditions
     instrument_preconditions(goto_model);
@@ -940,16 +882,8 @@ bool jbmc_parse_optionst::process_goto_functions(
       remove_unused_functions(goto_model, get_message_handler());
     }
 
-    // remove skips such that trivial GOTOs are deleted and not considered
-    // for coverage annotation:
+    // remove skips such that trivial GOTOs are deleted
     remove_skip(goto_model);
-
-    // instrument cover goals
-    if(cmdline.isset("cover"))
-    {
-      if(instrument_cover_goals(options, goto_model, get_message_handler()))
-        return true;
-    }
 
     // label the assertions
     // This must be done after adding assertions and
@@ -994,7 +928,7 @@ bool jbmc_parse_optionst::process_goto_functions(
         full_slicer(goto_model);
     }
 
-    // remove any skips introduced since coverage instrumentation
+    // remove any skips introduced
     remove_skip(goto_model);
   }
 
@@ -1069,15 +1003,10 @@ bool jbmc_parse_optionst::generate_function_body(
 /// display command line help
 void jbmc_parse_optionst::help()
 {
-  std::cout << "\n"
-               "* *   JBMC " CBMC_VERSION " - Copyright (C) 2001-2018 ";
-
-  std::cout << "(" << (sizeof(void *)*8) << "-bit version)";
-
-  std::cout << "   * *\n";
-
   // clang-format off
-  std::cout <<
+  std::cout << '\n' << banner_string("JBMC", CBMC_VERSION) << '\n'
+            <<
+    "* *                 Copyright (C) 2001-2018                 * *\n"
     "* *              Daniel Kroening, Edmund Clarke             * *\n"
     "* * Carnegie Mellon University, Computer Science Department * *\n"
     "* *                 kroening@kroening.com                   * *\n"
@@ -1085,7 +1014,12 @@ void jbmc_parse_optionst::help()
     "Usage:                       Purpose:\n"
     "\n"
     " jbmc [-?] [-h] [--help]      show help\n"
-    " jbmc class                   name of class to be checked\n"
+    " jbmc class                   name of class or JAR file to be checked\n"
+    "                              In the case of a JAR file, if a main class can be\n" // NOLINT(*)
+    "                              inferred from --main-class, --function, or the JAR\n" // NOLINT(*)
+    "                              manifest (checked in this order), the behavior is\n" // NOLINT(*)
+    "                              the same as running jbmc on the corresponding\n" // NOLINT(*)
+    "                              class file."
     "\n"
     "Analysis options:\n"
     HELP_SHOW_PROPERTIES
@@ -1100,15 +1034,14 @@ void jbmc_parse_optionst::help()
     " --show-parse-tree            show parse tree\n"
     " --show-symbol-table          show loaded symbol table\n"
     HELP_SHOW_GOTO_FUNCTIONS
-    " --drop-unused-functions      drop functions trivially unreachable from main function\n" // NOLINT(*)
+    " --drop-unused-functions      drop functions trivially unreachable\n"
+    "                              from main function\n"
     HELP_SHOW_CLASS_HIERARCHY
     "\n"
     "Program instrumentation options:\n"
-    HELP_GOTO_CHECK
     " --no-assertions              ignore user assertions\n"
     " --no-assumptions             ignore user assumptions\n"
     " --error-label label          check that label is unreachable\n"
-    " --cover CC                   create test-suite with coverage criterion CC\n" // NOLINT(*)
     " --mm MM                      memory consistency model for concurrent programs\n" // NOLINT(*)
     HELP_REACHABILITY_SLICER
     " --full-slice                 run full slicer (experimental)\n" // NOLINT(*)
@@ -1119,13 +1052,18 @@ void jbmc_parse_optionst::help()
     JAVA_BYTECODE_LANGUAGE_OPTIONS_HELP
     // This one is handled by jbmc_parse_options not by the Java frontend,
     // hence its presence here:
-    " --java-threading             enable experimental support for java multi-threading\n"// NOLINT(*)
-    " --java-unwind-enum-static    try to unwind loops in static initialization of enums\n" // NOLINT(*)
+    " --java-threading             enable java multi-threading support (experimental)\n" // NOLINT(*)
+    " --java-unwind-enum-static    unwind loops in static initialization of enums\n" // NOLINT(*)
     // Currently only supported in the JBMC frontend:
-    " --symex-driven-lazy-loading  only load functions when first entered by symbolic execution\n" // NOLINT(*)
-    "                              Note --show-symbol-table/goto-functions/properties output\n" // NOLINT(*)
-    "                              will be restricted to loaded methods in this case, and only\n" // NOLINT(*)
-    "                              output after the symex phase\n"
+    " --symex-driven-lazy-loading  only load functions when first entered by symbolic\n" // NOLINT(*)
+    "                              execution. Note that --show-symbol-table,\n"
+    "                              --show-goto-functions/properties output\n"
+    "                              will be restricted to loaded methods in this case,\n" // NOLINT(*)
+    "                              and only output after the symex phase.\n"
+    "\n"
+    "Semantic transformations:\n"
+    // NOLINTNEXTLINE(whitespace/line_length)
+    " --nondet-static              add nondeterministic initialization of variables with static lifetime\n"
     "\n"
     "BMC options:\n"
     HELP_BMC
@@ -1143,10 +1081,7 @@ void jbmc_parse_optionst::help()
     " --yices                      use Yices\n"
     " --z3                         use Z3\n"
     " --refine                     use refinement procedure (experimental)\n"
-    " --refine-strings             use string refinement (experimental)\n"
-    " --string-printable           add constraint that strings are printable (experimental)\n" // NOLINT(*)
-    " --string-max-length          add constraint on the length of strings\n" // NOLINT(*)
-    " --string-max-input-length    add constraint on the length of input strings\n" // NOLINT(*)
+    HELP_STRING_REFINEMENT
     " --outfile filename           output formula to given file\n"
     " --arrays-uf-never            never turn arrays into uninterpreted functions\n" // NOLINT(*)
     " --arrays-uf-always           always turn arrays into uninterpreted functions\n" // NOLINT(*)

@@ -9,6 +9,11 @@ Author: Daniel Kroening
 #include "tempfile.h"
 
 #ifdef _WIN32
+#include <util/pragma_push.def>
+#ifdef _MSC_VER
+#pragma warning(disable:4668)
+  // using #if/#elif on undefined macro
+#endif
 #include <process.h>
 #include <sys/stat.h>
 #include <windows.h>
@@ -17,12 +22,16 @@ Author: Daniel Kroening
 #define getpid _getpid
 #define open _open
 #define close _close
+#include <util/pragma_pop.def>
 #endif
 
 #include <fcntl.h>
 
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
+
+#include "exception_utils.h"
 
 #if defined(__linux__) || \
     defined(__FreeBSD_kernel__) || \
@@ -31,7 +40,6 @@ Author: Daniel Kroening
     defined(__CYGWIN__) || \
     defined(__MACH__)
 #include <unistd.h>
-#include <sys/time.h>
 #endif
 
 /// Substitute for mkstemps (OpenBSD standard) for Windows, where it is
@@ -62,7 +70,7 @@ int my_mkstemps(char *template_str, int suffix_len)
   static long long unsigned int random_state;
   random_state+=getpid()+123;
 
-  for(unsigned attempt=0; ; ++attempt)
+  for(unsigned attempt = 0; attempt < 1000; ++attempt)
   {
     unsigned long long number=random_state;
 
@@ -98,7 +106,7 @@ std::string get_temporary_file(
       lpTempPathBuffer); // buffer for path
 
   if(dwRetVal>MAX_PATH || (dwRetVal==0))
-    throw "GetTempPath failed"; // NOLINT(readability/throw)
+    throw system_exceptiont("Failed to get temporary directory");
 
   // the path returned by GetTempPath ends with a backslash
   std::string t_template=
@@ -121,7 +129,7 @@ std::string get_temporary_file(
   int fd=mkstemps(t_ptr, suffix.size());
 
   if(fd<0)
-    throw "mkstemps failed";
+    throw system_exceptiont("Failed to open temporary file");
 
   close(fd);
 
@@ -133,5 +141,5 @@ std::string get_temporary_file(
 temporary_filet::~temporary_filet()
 {
   if(!name.empty())
-    unlink(name.c_str());
+    std::remove(name.c_str());
 }

@@ -9,6 +9,8 @@ __CPROVER_bool __CPROVER_invalid_pointer(const void *);
 __CPROVER_bool __CPROVER_is_zero_string(const void *);
 __CPROVER_size_t __CPROVER_zero_string_length(const void *);
 __CPROVER_size_t __CPROVER_buffer_size(const void *);
+__CPROVER_bool __CPROVER_r_ok(const void *, __CPROVER_size_t);
+__CPROVER_bool __CPROVER_w_ok(const void *, __CPROVER_size_t);
 
 // bitvector analysis
 __CPROVER_bool __CPROVER_get_flag(const void *, const char *);
@@ -35,6 +37,7 @@ void CBMC_trace(int lvl, const char *event, ...);
 // pointers
 __CPROVER_size_t __CPROVER_POINTER_OBJECT(const void *);
 __CPROVER_ssize_t __CPROVER_POINTER_OFFSET(const void *);
+__CPROVER_size_t __CPROVER_OBJECT_SIZE(const void *);
 __CPROVER_bool __CPROVER_DYNAMIC_OBJECT(const void *);
 void __CPROVER_allocated_memory(__CPROVER_size_t address, __CPROVER_size_t extent);
 

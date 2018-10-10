@@ -53,7 +53,7 @@ protected:
 void base_type_rec(
   typet &type, const namespacet &ns, std::set<irep_idt> &symb)
 {
-  if(type.id() == ID_symbol)
+  if(type.id() == ID_symbol_type)
   {
     const symbolt *symbol;
 
@@ -99,7 +99,7 @@ void base_type_rec(
     typet &subtype=to_pointer_type(type).subtype();
 
     // we need to avoid running into an infinite loop
-    if(subtype.id() == ID_symbol)
+    if(subtype.id() == ID_symbol_type)
     {
       const irep_idt &id = to_symbol_type(subtype).get_identifier();
 
@@ -159,11 +159,10 @@ bool base_type_eqt::base_type_eq_rec(
   #endif
 
   // loop avoidance
-  if((type1.id()==ID_symbol ||
-      type1.id()==ID_c_enum_tag ||
-      type1.id()==ID_struct_tag ||
-      type1.id()==ID_union_tag) &&
-     type2.id()==type1.id())
+  if(
+    (type1.id() == ID_symbol_type || type1.id() == ID_c_enum_tag ||
+     type1.id() == ID_struct_tag || type1.id() == ID_union_tag) &&
+    type2.id() == type1.id())
   {
     // already in same set?
     if(identifiers.make_union(
@@ -172,10 +171,9 @@ bool base_type_eqt::base_type_eq_rec(
       return true;
   }
 
-  if(type1.id()==ID_symbol ||
-     type1.id()==ID_c_enum_tag ||
-     type1.id()==ID_struct_tag ||
-     type1.id()==ID_union_tag)
+  if(
+    type1.id() == ID_symbol_type || type1.id() == ID_c_enum_tag ||
+    type1.id() == ID_struct_tag || type1.id() == ID_union_tag)
   {
     const symbolt &symbol=
       ns.lookup(type1.get(ID_identifier));
@@ -186,10 +184,9 @@ bool base_type_eqt::base_type_eq_rec(
     return base_type_eq_rec(symbol.type, type2);
   }
 
-  if(type2.id()==ID_symbol ||
-     type2.id()==ID_c_enum_tag ||
-     type2.id()==ID_struct_tag ||
-     type2.id()==ID_union_tag)
+  if(
+    type2.id() == ID_symbol_type || type2.id() == ID_c_enum_tag ||
+    type2.id() == ID_struct_tag || type2.id() == ID_union_tag)
   {
     const symbolt &symbol=
       ns.lookup(type2.get(ID_identifier));
@@ -323,6 +320,15 @@ bool base_type_eqt::base_type_eq_rec(
   return true;
 }
 
+/// Check types for equality across all levels of hierarchy. For equality
+/// in the top level of the hierarchy only use \ref type_eq.
+/// Example:
+/// - `symbol_typet("a")` and `ns.lookup("a").type` will compare equal,
+/// - `struct_typet {symbol_typet("a")}` and `struct_typet {ns.lookup("a")
+///   .type}` will also compare equal.
+/// \param type1 The first type to compare.
+/// \param type2 The second type to compare.
+/// \param ns The namespace, needed for resolution of symbols.
 bool base_type_eq(
   const typet &type1,
   const typet &type2,
@@ -332,6 +338,10 @@ bool base_type_eq(
   return base_type_eq.base_type_eq(type1, type2);
 }
 
+/// Check expressions for equality across all levels of hierarchy.
+/// \param expr1 The first expression to compare.
+/// \param expr2 The second expression to compare.
+/// \param ns The namespace, needed for resolution of symbols.
 bool base_type_eq(
   const exprt &expr1,
   const exprt &expr2,

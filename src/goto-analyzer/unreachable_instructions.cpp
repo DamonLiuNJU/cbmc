@@ -59,7 +59,7 @@ static void build_dead_map_from_ai(
   dead_mapt &dest)
 {
   forall_goto_program_instructions(it, goto_program)
-    if(ai.abstract_state_before(it).is_bottom())
+    if(ai.abstract_state_before(it)->is_bottom())
       dest.insert(std::make_pair(it->location_number, it));
 }
 
@@ -84,7 +84,6 @@ static void output_dead_plain(
 }
 
 static void add_to_xml(
-  const namespacet &ns,
   const goto_programt &goto_program,
   const dead_mapt &dead_map,
   xmlt &dest)
@@ -206,7 +205,6 @@ bool static_unreachable_instructions(
   const goto_modelt &goto_model,
   const ai_baset &ai,
   const optionst &options,
-  message_handlert &message_handler,
   std::ostream &out)
 {
   json_arrayt json_result;
@@ -231,12 +229,11 @@ bool static_unreachable_instructions(
       }
       else if(options.get_bool_option("xml"))
       {
-        add_to_xml(ns, f_it->second.body, dead_map, xml_result);
+        add_to_xml(f_it->second.body, dead_map, xml_result);
       }
       else
       {
-        INVARIANT(options.get_bool_option("text"),
-                  "Other output formats handled");
+        // text or console
         output_dead_plain(ns, f_it->second.body, dead_map, out);
       }
     }
@@ -344,14 +341,13 @@ static void list_functions(
       // this to macros/asm renaming
       continue;
 
-    if(options.get_bool_option("text"))
+    if(options.get_bool_option("json"))
     {
-      os << concat_dir_file(
-              id2string(first_location.get_working_directory()),
-              id2string(first_location.get_file())) << " "
-         << decl.base_name << " "
-         << first_location.get_line() << " "
-         << last_location.get_line() << "\n";
+      json_output_function(
+        decl.base_name,
+        first_location,
+        last_location,
+        json_result);
     }
     else if(options.get_bool_option("xml"))
     {
@@ -362,11 +358,15 @@ static void list_functions(
         xml_result);
     }
     else
-      json_output_function(
-        decl.base_name,
-        first_location,
-        last_location,
-        json_result);
+    {
+      // text or console
+      os << concat_dir_file(
+              id2string(first_location.get_working_directory()),
+              id2string(first_location.get_file())) << " "
+         << decl.base_name << " "
+         << first_location.get_line() << " "
+         << last_location.get_line() << "\n";
+    }
   }
 
   if(options.get_bool_option("json") && !json_result.array.empty())
@@ -383,8 +383,6 @@ void unreachable_functions(
   optionst options;
   if(json)
     options.set_option("json", true);
-  else
-    options.set_option("text", true);
 
   std::unordered_set<irep_idt> called = compute_called_functions(goto_model);
 
@@ -399,8 +397,6 @@ void reachable_functions(
   optionst options;
   if(json)
     options.set_option("json", true);
-  else
-    options.set_option("text", true);
 
   std::unordered_set<irep_idt> called = compute_called_functions(goto_model);
 
@@ -420,7 +416,7 @@ std::unordered_set<irep_idt> compute_called_functions_from_ai(
 
     const goto_programt &p = f_it->second.body;
 
-    if(!ai.abstract_state_before(p.instructions.begin()).is_bottom())
+    if(!ai.abstract_state_before(p.instructions.begin())->is_bottom())
       called.insert(f_it->first);
   }
 
@@ -431,7 +427,6 @@ bool static_unreachable_functions(
   const goto_modelt &goto_model,
   const ai_baset &ai,
   const optionst &options,
-  message_handlert &message_handler,
   std::ostream &out)
 {
   std::unordered_set<irep_idt> called =
@@ -446,7 +441,6 @@ bool static_reachable_functions(
   const goto_modelt &goto_model,
   const ai_baset &ai,
   const optionst &options,
-  message_handlert &message_handler,
   std::ostream &out)
 {
   std::unordered_set<irep_idt> called =

@@ -34,7 +34,8 @@ void goto_symext::havoc_rec(
 
     code_assignt assignment;
     assignment.lhs()=lhs;
-    assignment.rhs()=side_effect_expr_nondett(dest.type());
+    assignment.rhs() =
+      side_effect_expr_nondett(dest.type(), state.source.pc->source_location);
 
     symex_assign(state, assignment);
   }
@@ -78,7 +79,7 @@ void goto_symext::symex_other(
 {
   const goto_programt::instructiont &instruction=*state.source.pc;
 
-  const codet &code=to_code(instruction.code);
+  const codet &code = instruction.code;
 
   const irep_idt &statement=code.get_statement();
 
@@ -101,7 +102,7 @@ void goto_symext::symex_other(
   {
     codet clean_code=code;
     clean_expr(clean_code, state, false);
-    symex_printf(state, nil_exprt(), clean_code);
+    symex_printf(state, clean_code);
   }
   else if(statement==ID_input)
   {
@@ -139,7 +140,7 @@ void goto_symext::symex_other(
     // - array_replace: the type of the second array (even if it is smaller)
     DATA_INVARIANT(
       code.operands().size() == 2,
-      "array_copy/array_replace takes two operands");
+      "expected array_copy/array_replace statement to have two operands");
 
     // we need to add dereferencing for both operands
     dereference_exprt dest_array(code.op0());
@@ -187,7 +188,9 @@ void goto_symext::symex_other(
     // process_array_expr)
     // 3. use the type of the resulting array to construct an array_of
     // expression
-    DATA_INVARIANT(code.operands().size() == 2, "array_set takes two operands");
+    DATA_INVARIANT(
+      code.operands().size() == 2,
+      "expected array_set statement to have two operands");
 
     // we need to add dereferencing for the first operand
     exprt array_expr = dereference_exprt(code.op0());
@@ -234,7 +237,7 @@ void goto_symext::symex_other(
     // if the types don't match the result trivially is false
     DATA_INVARIANT(
       code.operands().size() == 3,
-      "array_equal expected to take three arguments");
+      "expected array_equal statement to have three operands");
 
     // we need to add dereferencing for the first two
     dereference_exprt array1(code.op0());
@@ -266,8 +269,9 @@ void goto_symext::symex_other(
   }
   else if(statement==ID_havoc_object)
   {
-    DATA_INVARIANT(code.operands().size()==1,
-                   "havoc_object must have one operand");
+    DATA_INVARIANT(
+      code.operands().size() == 1,
+      "expected havoc_object statement to have one operand");
 
     // we need to add dereferencing for the first operand
     dereference_exprt object(code.op0(), empty_typet());
@@ -276,5 +280,5 @@ void goto_symext::symex_other(
     havoc_rec(state, guardt(), object);
   }
   else
-    throw "unexpected statement: "+id2string(statement);
+    UNREACHABLE;
 }

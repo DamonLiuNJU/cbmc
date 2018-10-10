@@ -13,7 +13,6 @@ Author: Daniel Kroening
 
 #include "goto_trace.h"
 
-#include <cassert>
 #include <ostream>
 
 #include <util/arith_tools.h>
@@ -24,6 +23,25 @@ Author: Daniel Kroening
 
 #include "printf_formatter.h"
 
+static optionalt<symbol_exprt> get_object_rec(const exprt &src)
+{
+  if(src.id()==ID_symbol)
+    return to_symbol_expr(src);
+  else if(src.id()==ID_member)
+    return get_object_rec(to_member_expr(src).struct_op());
+  else if(src.id()==ID_index)
+    return get_object_rec(to_index_expr(src).array());
+  else if(src.id()==ID_typecast)
+    return get_object_rec(to_typecast_expr(src).op());
+  else
+    return {}; // give up
+}
+
+optionalt<symbol_exprt> goto_trace_stept::get_lhs_object() const
+{
+  return get_object_rec(full_lhs);
+}
+
 void goto_tracet::output(
   const class namespacet &ns,
   std::ostream &out) const
@@ -33,7 +51,7 @@ void goto_tracet::output(
 }
 
 void goto_trace_stept::output(
-  const namespacet &ns,
+  const namespacet &,
   std::ostream &out) const
 {
   out << "*** ";
@@ -66,7 +84,7 @@ void goto_trace_stept::output(
   if(is_assert() || is_assume() || is_goto())
     out << " (" << cond_value << ")";
   else if(is_function_call() || is_function_return())
-    out << ' ' << identifier;
+    out << ' ' << function_identifier;
 
   if(hidden)
     out << " hidden";
@@ -103,10 +121,50 @@ void goto_trace_stept::output(
 
   out << '\n';
 }
+/// Returns the numeric representation of an expression, based on
+/// options. The default is binary without a base-prefix. Setting
+/// options.hex_representation to be true outputs hex format. Setting
+/// options.base_prefix to be true appends either 0b or 0x to the number
+/// to indicate the base
+/// \param expr: expression to get numeric representation from
+/// \param options: configuration options
+/// \return a string with the numeric representation
+static std::string
+numeric_representation(const exprt &expr, const trace_optionst &options)
+{
+  std::string result;
+  std::string prefix;
+  if(options.hex_representation)
+  {
+    mp_integer value_int =
+      bv2integer(id2string(to_constant_expr(expr).get_value()), false);
+    result = integer2string(value_int, 16);
+    prefix = "0x";
+  }
+  else
+  {
+    prefix = "0b";
+    result = expr.get_string(ID_value);
+  }
 
-std::string trace_value_binary(
+  std::ostringstream oss;
+  std::string::size_type i = 0;
+  for(const auto c : result)
+  {
+    oss << c;
+    if(++i % 8 == 0 && result.size() != i)
+      oss << ' ';
+  }
+  if(options.base_prefix)
+    return prefix + oss.str();
+  else
+    return oss.str();
+}
+
+std::string trace_numeric_value(
   const exprt &expr,
-  const namespacet &ns)
+  const namespacet &ns,
+  const trace_optionst &options)
 {
   const typet &type=ns.follow(expr.type());
 
@@ -123,18 +181,8 @@ std::string trace_value_binary(
        type.id()==ID_c_enum ||
        type.id()==ID_c_enum_tag)
     {
-      const std::string & str = expr.get_string(ID_value);
-
-      std::ostringstream oss;
-      std::string::size_type i = 0;
-      for(const auto c : str)
-      {
-        oss << c;
-        if(++i % 8 == 0 && str.size() != i)
-          oss << ' ';
-      }
-
-      return oss.str();
+      const std::string &str = numeric_representation(expr, options);
+      return str;
     }
     else if(type.id()==ID_bool)
     {
@@ -157,7 +205,7 @@ std::string trace_value_binary(
         result="{ ";
       else
         result+=", ";
-      result+=trace_value_binary(*it, ns);
+      result+=trace_numeric_value(*it, ns, options);
     }
 
     return result+" }";
@@ -170,15 +218,15 @@ std::string trace_value_binary(
     {
       if(it!=expr.operands().begin())
         result+=", ";
-      result+=trace_value_binary(*it, ns);
+      result+=trace_numeric_value(*it, ns, options);
     }
 
     return result+" }";
   }
   else if(expr.id()==ID_union)
   {
-    assert(expr.operands().size()==1);
-    return trace_value_binary(expr.op0(), ns);
+    PRECONDITION(expr.operands().size()==1);
+    return trace_numeric_value(expr.op0(), ns, options);
   }
 
   return "?";
@@ -187,14 +235,15 @@ std::string trace_value_binary(
 void trace_value(
   std::ostream &out,
   const namespacet &ns,
-  const ssa_exprt &lhs_object,
+  const optionalt<symbol_exprt> &lhs_object,
   const exprt &full_lhs,
-  const exprt &value)
+  const exprt &value,
+  const trace_optionst &options)
 {
   irep_idt identifier;
 
-  if(lhs_object.is_not_nil())
-    identifier=lhs_object.get_object_name();
+  if(lhs_object.has_value())
+    identifier=lhs_object->get_identifier();
 
   std::string value_string;
 
@@ -205,7 +254,7 @@ void trace_value(
     value_string=from_expr(ns, identifier, value);
 
     // the binary representation
-    value_string+=" ("+trace_value_binary(value, ns)+")";
+    value_string += " (" + trace_numeric_value(value, ns, options) + ")";
   }
 
   out << "  "
@@ -216,20 +265,30 @@ void trace_value(
 
 void show_state_header(
   std::ostream &out,
+  const namespacet &ns,
   const goto_trace_stept &state,
   const source_locationt &source_location,
-  unsigned step_nr)
+  unsigned step_nr,
+  const trace_optionst &options)
 {
   out << "\n";
 
-  if(step_nr==0)
+  if(step_nr == 0)
     out << "Initial State";
   else
     out << "State " << step_nr;
 
-  out << " " << source_location
-      << " thread " << state.thread_nr << "\n";
-  out << "----------------------------------------------------" << "\n";
+  out << " " << source_location << " thread " << state.thread_nr << "\n";
+  out << "----------------------------------------------------"
+      << "\n";
+
+  if(options.show_code)
+  {
+    out << as_string(ns, *state.pc)
+        << "\n";
+    out << "----------------------------------------------------"
+        << "\n";
+  }
 }
 
 bool is_index_member_symbol(const exprt &src)
@@ -244,13 +303,15 @@ bool is_index_member_symbol(const exprt &src)
     return false;
 }
 
-void show_goto_trace(
+void show_full_goto_trace(
   std::ostream &out,
   const namespacet &ns,
-  const goto_tracet &goto_trace)
+  const goto_tracet &goto_trace,
+  const trace_optionst &options)
 {
   unsigned prev_step_nr=0;
   bool first_step=true;
+  std::size_t function_depth=0;
 
   for(const auto &step : goto_trace.steps)
   {
@@ -303,22 +364,23 @@ void show_goto_trace(
       if(step.pc->is_assign() ||
          step.pc->is_return() || // returns have a lhs!
          step.pc->is_function_call() ||
-         (step.pc->is_other() && step.lhs_object.is_not_nil()))
+         (step.pc->is_other() && step.full_lhs.is_not_nil()))
       {
         if(prev_step_nr!=step.step_nr || first_step)
         {
           first_step=false;
           prev_step_nr=step.step_nr;
-          show_state_header(out, step, step.pc->source_location, step.step_nr);
+          show_state_header(
+            out, ns, step, step.pc->source_location, step.step_nr, options);
         }
 
-        // see if the full lhs is something clean
-        if(is_index_member_symbol(step.full_lhs))
-          trace_value(
-            out, ns, step.lhs_object, step.full_lhs, step.full_lhs_value);
-        else
-          trace_value(
-            out, ns, step.lhs_object, step.lhs_object, step.lhs_object_value);
+       trace_value(
+         out,
+         ns,
+         step.get_lhs_object(),
+         step.full_lhs,
+         step.full_lhs_value,
+         options);
       }
       break;
 
@@ -327,10 +389,12 @@ void show_goto_trace(
       {
         first_step=false;
         prev_step_nr=step.step_nr;
-        show_state_header(out, step, step.pc->source_location, step.step_nr);
+        show_state_header(
+          out, ns, step, step.pc->source_location, step.step_nr, options);
       }
 
-      trace_value(out, ns, step.lhs_object, step.full_lhs, step.full_lhs_value);
+      trace_value(
+        out, ns, step.get_lhs_object(), step.full_lhs, step.full_lhs_value, options);
       break;
 
     case goto_trace_stept::typet::OUTPUT:
@@ -343,7 +407,8 @@ void show_goto_trace(
       }
       else
       {
-        show_state_header(out, step, step.pc->source_location, step.step_nr);
+        show_state_header(
+          out, ns, step, step.pc->source_location, step.step_nr, options);
         out << "  OUTPUT " << step.io_id << ":";
 
         for(std::list<exprt>::const_iterator
@@ -356,7 +421,7 @@ void show_goto_trace(
           out << " " << from_expr(ns, step.pc->function, *l_it);
 
           // the binary representation
-          out << " (" << trace_value_binary(*l_it, ns) << ")";
+          out << " (" << trace_numeric_value(*l_it, ns, options) << ")";
         }
 
         out << "\n";
@@ -364,7 +429,8 @@ void show_goto_trace(
       break;
 
     case goto_trace_stept::typet::INPUT:
-      show_state_header(out, step, step.pc->source_location, step.step_nr);
+      show_state_header(
+        out, ns, step, step.pc->source_location, step.step_nr, options);
       out << "  INPUT " << step.io_id << ":";
 
       for(std::list<exprt>::const_iterator
@@ -377,14 +443,43 @@ void show_goto_trace(
         out << " " << from_expr(ns, step.pc->function, *l_it);
 
         // the binary representation
-        out << " (" << trace_value_binary(*l_it, ns) << ")";
+        out << " (" << trace_numeric_value(*l_it, ns, options) << ")";
       }
 
       out << "\n";
       break;
 
     case goto_trace_stept::typet::FUNCTION_CALL:
+      function_depth++;
+      if(options.show_function_calls)
+      {
+        out << "\n#### Function call: " << step.function_identifier;
+        out << '(';
+
+        bool first = true;
+        for(auto &arg : step.function_arguments)
+        {
+          if(first)
+            first = false;
+          else
+            out << ", ";
+
+          out << from_expr(ns, step.function_identifier, arg);
+        }
+
+        out << ") (depth " << function_depth << ") ####\n";
+      }
+      break;
+
     case goto_trace_stept::typet::FUNCTION_RETURN:
+      function_depth--;
+      if(options.show_function_calls)
+      {
+        out << "\n#### Function return: " << step.function_identifier
+            << " (depth " << function_depth << ") ####\n";
+      }
+      break;
+
     case goto_trace_stept::typet::SPAWN:
     case goto_trace_stept::typet::MEMORY_BARRIER:
     case goto_trace_stept::typet::ATOMIC_BEGIN:
@@ -401,5 +496,100 @@ void show_goto_trace(
   }
 }
 
+void show_goto_stack_trace(
+  std::ostream &out,
+  const namespacet &ns,
+  const goto_tracet &goto_trace,
+  const trace_optionst &options)
+{
+  // map from thread number to a call stack
+  std::map<unsigned, std::vector<goto_tracet::stepst::const_iterator>>
+    call_stacks;
+
+  // by default, we show thread 0
+  unsigned thread_to_show = 0;
+
+  for(auto s_it = goto_trace.steps.begin(); s_it != goto_trace.steps.end();
+      s_it++)
+  {
+    const auto &step = *s_it;
+    auto &stack = call_stacks[step.thread_nr];
+
+    if(step.is_assert())
+    {
+      if(!step.cond_value)
+      {
+        stack.push_back(s_it);
+        thread_to_show = step.thread_nr;
+      }
+    }
+    else if(step.is_function_call())
+    {
+      stack.push_back(s_it);
+    }
+    else if(step.is_function_return())
+    {
+      stack.pop_back();
+    }
+  }
+
+  const auto &stack = call_stacks[thread_to_show];
+
+  // print in reverse order
+  for(auto s_it = stack.rbegin(); s_it != stack.rend(); s_it++)
+  {
+    const auto &step = **s_it;
+    if(step.is_assert())
+    {
+      out << "  assertion failure";
+      if(!step.pc->source_location.is_nil())
+        out << ' ' << step.pc->source_location;
+      out << '\n';
+    }
+    else if(step.is_function_call())
+    {
+      out << "  " << step.function_identifier;
+      out << '(';
+
+      bool first = true;
+      for(auto &arg : step.function_arguments)
+      {
+        if(first)
+          first = false;
+        else
+          out << ", ";
+
+        out << from_expr(ns, step.function_identifier, arg);
+      }
+
+      out << ')';
+
+      if(!step.pc->source_location.is_nil())
+        out << ' ' << step.pc->source_location;
+
+      out << '\n';
+    }
+  }
+}
+
+void show_goto_trace(
+  std::ostream &out,
+  const namespacet &ns,
+  const goto_tracet &goto_trace,
+  const trace_optionst &options)
+{
+  if(options.stack_trace)
+    show_goto_stack_trace(out, ns, goto_trace, options);
+  else
+    show_full_goto_trace(out, ns, goto_trace, options);
+}
+
+void show_goto_trace(
+  std::ostream &out,
+  const namespacet &ns,
+  const goto_tracet &goto_trace)
+{
+  show_goto_trace(out, ns, goto_trace, trace_optionst::default_options);
+}
 
 const trace_optionst trace_optionst::default_options = trace_optionst();

@@ -326,6 +326,7 @@ protected:
   // with false we continue.
   virtual bool get_unwind(
     const symex_targett::sourcet &source,
+    const goto_symex_statet::call_stackt &context,
     unsigned unwind);
 
   virtual void loop_bound_exceeded(statet &, const exprt &guard);
@@ -335,7 +336,7 @@ protected:
   void pop_frame(statet &);
   void return_assignment(statet &);
 
-  virtual void no_body(const irep_idt &identifier)
+  virtual void no_body(const irep_idt &)
   {
   }
 
@@ -453,7 +454,7 @@ protected:
   virtual void symex_fkt(statet &, const code_function_callt &);
   virtual void symex_macro(statet &, const code_function_callt &);
   virtual void symex_trace(statet &, const code_function_callt &);
-  virtual void symex_printf(statet &, const exprt &lhs, const exprt &rhs);
+  virtual void symex_printf(statet &, const exprt &rhs);
   virtual void symex_input(statet &, const codet &);
   virtual void symex_output(statet &, const codet &);
 

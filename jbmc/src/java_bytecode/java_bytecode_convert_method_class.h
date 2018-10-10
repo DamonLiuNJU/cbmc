@@ -39,11 +39,13 @@ public:
     bool throw_assertion_error,
     optionalt<ci_lazy_methods_neededt> needed_lazy_methods,
     java_string_library_preprocesst &_string_preprocess,
-    const class_hierarchyt &class_hierarchy)
+    const class_hierarchyt &class_hierarchy,
+    bool threading_support)
     : messaget(_message_handler),
       symbol_table(symbol_table),
       max_array_length(_max_array_length),
       throw_assertion_error(throw_assertion_error),
+      threading_support(threading_support),
       needed_lazy_methods(std::move(needed_lazy_methods)),
       string_preprocess(_string_preprocess),
       slots_for_parameters(0),
@@ -63,10 +65,13 @@ public:
     convert(class_symbol, method);
   }
 
+  typedef uint16_t method_offsett;
+
 protected:
   symbol_table_baset &symbol_table;
   const size_t max_array_length;
   const bool throw_assertion_error;
+  const bool threading_support;
   optionalt<ci_lazy_methods_neededt> needed_lazy_methods;
 
   /// Fully qualified name of the method under translation.
@@ -86,13 +91,13 @@ protected:
   /// Number of local variable slots used by the JVM to pass parameters upon
   /// invocation of the method under translation.
   /// Initialized in `convert`.
-  unsigned slots_for_parameters;
+  method_offsett slots_for_parameters;
 
 public:
   struct holet
   {
-    unsigned start_pc;
-    unsigned length;
+    method_offsett start_pc;
+    method_offsett length;
   };
 
   struct local_variable_with_holest
@@ -126,7 +131,7 @@ protected:
   bool method_has_this;
   std::map<irep_idt, bool> class_has_clinit_method;
   std::map<irep_idt, bool> any_superclass_has_clinit_method;
-  class_hierarchyt class_hierarchy;
+  const class_hierarchyt &class_hierarchy;
 
   enum instruction_sizet
   {
@@ -188,17 +193,17 @@ protected:
     }
 
     instructionst::const_iterator source;
-    std::list<unsigned> successors;
-    std::set<unsigned> predecessors;
+    std::list<method_offsett> successors;
+    std::set<method_offsett> predecessors;
     codet code;
     stackt stack;
     bool done;
   };
 
 public:
-  typedef std::map<unsigned, converted_instructiont> address_mapt;
+  typedef std::map<method_offsett, converted_instructiont> address_mapt;
   typedef std::pair<const methodt &, const address_mapt &> method_with_amapt;
-  typedef cfg_dominators_templatet<method_with_amapt, unsigned, false>
+  typedef cfg_dominators_templatet<method_with_amapt, method_offsett, false>
     java_cfg_dominatorst;
 
 protected:
@@ -218,7 +223,7 @@ protected:
   struct block_tree_nodet
   {
     bool leaf;
-    std::vector<unsigned> branch_addresses;
+    std::vector<method_offsett> branch_addresses;
     std::vector<block_tree_nodet> branch;
 
     block_tree_nodet() : leaf(false)
@@ -243,16 +248,16 @@ protected:
   code_blockt &get_block_for_pcrange(
     block_tree_nodet &tree,
     code_blockt &this_block,
-    unsigned address_start,
-    unsigned address_limit,
-    unsigned next_block_start_address);
+    method_offsett address_start,
+    method_offsett address_limit,
+    method_offsett next_block_start_address);
 
   code_blockt &get_or_create_block_for_pcrange(
     block_tree_nodet &tree,
     code_blockt &this_block,
-    unsigned address_start,
-    unsigned address_limit,
-    unsigned next_block_start_address,
+    method_offsett address_start,
+    method_offsett address_limit,
+    method_offsett next_block_start_address,
     const address_mapt &amap,
     bool allow_merge = true);
 
@@ -265,8 +270,6 @@ protected:
 
   codet convert_instructions(
     const methodt &,
-    const code_typet &,
-    const irep_idt &,
     const java_class_typet::java_lambda_method_handlest &);
 
   const bytecode_infot &get_bytecode_info(const irep_idt &statement);
@@ -301,14 +304,14 @@ protected:
     code_blockt &,
     exprt &);
 
-  std::vector<unsigned int> try_catch_handler(
-    unsigned int address,
+  std::vector<method_offsett> try_catch_handler(
+    method_offsett address,
     const java_bytecode_parse_treet::methodt::exception_tablet &exception_table)
     const;
 
   void draw_edges_from_ret_to_jsr(
     address_mapt &address_map,
-    const std::vector<unsigned int> &jsr_ret_targets,
+    const std::vector<method_offsett> &jsr_ret_targets,
     const std::vector<
       std::vector<java_bytecode_parse_treet::instructiont>::const_iterator>
       &ret_instructions) const;
@@ -327,17 +330,17 @@ protected:
     const irep_idt &statement,
     const exprt &arg0,
     const exprt::operandst &op,
-    const unsigned address,
+    const method_offsett address,
     const source_locationt &location);
 
   exprt
   convert_aload(const irep_idt &statement, const exprt::operandst &op) const;
 
   code_blockt convert_ret(
-    const std::vector<unsigned int> &jsr_ret_targets,
+    const std::vector<method_offsett> &jsr_ret_targets,
     const exprt &arg0,
     const source_locationt &location,
-    const unsigned address);
+    const method_offsett address);
 
   codet convert_if_cmp(
     const java_bytecode_convert_methodt::address_mapt &address_map,
@@ -369,7 +372,7 @@ protected:
     const exprt &arg0,
     const exprt &arg1,
     const source_locationt &location,
-    unsigned address);
+    method_offsett address);
 
   exprt::operandst &convert_ushr(
     const irep_idt &statement,
@@ -420,18 +423,10 @@ protected:
     codet &c,
     exprt::operandst &results);
 
-  codet convert_monitorenter(
-    const source_locationt &location,
-    const exprt::operandst &op) const;
-
-  codet convert_monitorexit(
-    const source_locationt &location,
-    const exprt::operandst &op) const;
-
   codet &do_exception_handling(
     const methodt &method,
-    const std::set<unsigned int> &working_set,
-    unsigned int cur_pc,
+    const std::set<method_offsett> &working_set,
+    method_offsett cur_pc,
     codet &c);
 
   void convert_athrow(
@@ -445,6 +440,11 @@ protected:
     const exprt::operandst &op,
     codet &c,
     exprt::operandst &results) const;
+
+  codet convert_monitorenterexit(
+    const irep_idt &statement,
+    const exprt::operandst &op,
+    const source_locationt &source_location);
 
   codet &replace_call_to_cprover_assume(source_locationt location, codet &c);
 

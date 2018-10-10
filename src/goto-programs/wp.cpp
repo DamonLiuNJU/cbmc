@@ -17,6 +17,8 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/std_code.h>
 #include <util/base_type.h>
 
+#include <util/invariant.h>
+
 bool has_nondet(const exprt &dest)
 {
   forall_operands(it, dest)
@@ -218,7 +220,7 @@ exprt wp_assign(
 exprt wp_assume(
   const code_assumet &code,
   const exprt &post,
-  const namespacet &ns)
+  const namespacet &)
 {
   return implies_exprt(code.assumption(), post);
 }
@@ -230,7 +232,7 @@ exprt wp_decl(
 {
   // Model decl(var) as var = nondet()
   const exprt &var = code.symbol();
-  side_effect_expr_nondett nondet(var.type());
+  side_effect_expr_nondett nondet(var.type(), source_locationt());
   code_assignt assignment(var, nondet);
 
   return wp_assign(assignment, post, ns);
@@ -263,6 +265,6 @@ exprt wp(
     return post; // ignored
   else if(statement==ID_fence)
     return post; // ignored
-  else
-    throw "sorry, wp("+id2string(statement)+"...) not implemented";
+  INVARIANT_WITH_DIAGNOSTICS(
+    false, "sorry, wp(", id2string(statement), "...) is not implemented");
 }

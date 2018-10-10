@@ -330,7 +330,8 @@ void custom_bitvector_domaint::transform(
             unsigned bit_nr=
               cba.get_bit_nr(code_function_call.arguments()[1]);
 
-            modet mode;
+            // initialize to make Visual Studio happy
+            modet mode = modet::SET_MUST;
 
             if(identifier=="__CPROVER_set_must")
               mode=modet::SET_MUST;
@@ -458,7 +459,8 @@ void custom_bitvector_domaint::transform(
         unsigned bit_nr=
           cba.get_bit_nr(instruction.code.op1());
 
-        modet mode;
+        // initialize to make Visual Studio happy
+        modet mode = modet::SET_MUST;
 
         if(statement=="set_must")
           mode=modet::SET_MUST;
@@ -543,7 +545,7 @@ void custom_bitvector_domaint::transform(
 void custom_bitvector_domaint::output(
   std::ostream &out,
   const ai_baset &ai,
-  const namespacet &ns) const
+  const namespacet &) const
 {
   if(has_values.is_known())
   {
@@ -589,8 +591,8 @@ void custom_bitvector_domaint::output(
 
 bool custom_bitvector_domaint::merge(
   const custom_bitvector_domaint &b,
-  locationt from,
-  locationt to)
+  locationt,
+  locationt)
 {
   bool changed=has_values.is_false();
   has_values=tvt::unknown();

@@ -15,8 +15,6 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <iostream>
 #endif
 
-#include <cassert>
-
 #include <util/base_type.h>
 #include <util/cprover_prefix.h>
 #include <util/expr_util.h>
@@ -56,12 +54,9 @@ void goto_inlinet::parameter_assignments(
 
     const irep_idt &identifier=parameter.get_identifier();
 
-    if(identifier.empty())
-    {
-      error().source_location=source_location;
-      error() << "no identifier for function parameter" << eom;
-      throw 0;
-    }
+    DATA_INVARIANT(
+      !identifier.empty(),
+      source_location.as_string() + ": no identifier for function parameter");
 
     {
       const symbolt &symbol=ns.lookup(identifier);
@@ -85,7 +80,7 @@ void goto_inlinet::parameter_assignments(
                 << "not enough arguments, "
                 << "inserting non-deterministic value" << eom;
 
-      actual=side_effect_expr_nondett(par_type);
+      actual = side_effect_expr_nondett(par_type, source_location);
     }
     else
       actual=*it1;
@@ -123,16 +118,7 @@ void goto_inlinet::parameter_assignments(
         }
         else
         {
-          error().source_location=actual.find_source_location();
-
-          error() << "function call: argument `" << identifier
-                  << "' type mismatch: argument is `"
-                  // << from_type(ns, identifier, actual.type())
-                  << actual.type().pretty()
-                  << "', parameter is `"
-                  << from_type(ns, identifier, par_type)
-                  << "'" << eom;
-          throw 0;
+          UNREACHABLE;
         }
       }
 
@@ -176,12 +162,9 @@ void goto_inlinet::parameter_destruction(
   {
     const irep_idt &identifier=parameter.get_identifier();
 
-    if(identifier.empty())
-    {
-      error().source_location=source_location;
-      error() << "no identifier for function parameter" << eom;
-      throw 0;
-    }
+    INVARIANT(
+      !identifier.empty(),
+      source_location.as_string() + ": no identifier for function parameter");
 
     {
       const symbolt &symbol=ns.lookup(identifier);
@@ -301,6 +284,13 @@ void goto_inlinet::insert_function_body(
   if(adjust_function)
     for(auto &instruction : body.instructions)
       instruction.function=target->function;
+
+  // make sure the inlined function does not introduce hiding
+  if(goto_function.is_hidden())
+  {
+    for(auto &instruction : body.instructions)
+      instruction.labels.remove("__CPROVER_HIDE");
+  }
 
   replace_return(body, lhs);
 
@@ -626,9 +616,8 @@ const goto_inlinet::goto_functiont &goto_inlinet::goto_inline_transitive(
   }
 
   goto_functiont &cached=cache[identifier];
-  INVARIANT(
-    cached.body.empty(),
-    "body of new function in cache must be empty");
+  DATA_INVARIANT(
+    cached.body.empty(), "body of new function in cache must be empty");
 
   progress() << "Creating copy of " << identifier << eom;
   progress() << "Number of instructions: "
@@ -688,7 +677,7 @@ bool goto_inlinet::check_inline_map(
   goto_functionst::function_mapt::const_iterator f_it=
     goto_functions.function_map.find(identifier);
 
-  PRECONDITION(f_it!=goto_functions.function_map.end());
+  PRECONDITION(f_it != goto_functions.function_map.end());
 
   inline_mapt::const_iterator im_it=inline_map.find(identifier);
 
@@ -700,7 +689,7 @@ bool goto_inlinet::check_inline_map(
   if(call_list.empty())
     return true;
 
-  int ln=-1;
+  unsigned ln = goto_programt::instructiont::nil_target;
 
   for(const auto &call : call_list)
   {
@@ -713,8 +702,12 @@ bool goto_inlinet::check_inline_map(
     #endif
 
     // location numbers increasing
-    if(static_cast<int>(target->location_number)<=ln)
+    if(
+      ln != goto_programt::instructiont::nil_target &&
+      target->location_number <= ln)
+    {
       return false;
+    }
 
     if(!target->is_function_call())
       return false;
@@ -758,7 +751,9 @@ void goto_inlinet::output_inline_map(
        !call_list.empty())
     {
       const goto_functiont &goto_function=f_it->second;
-      PRECONDITION(goto_function.body_available());
+      DATA_INVARIANT(
+        goto_function.body_available(),
+        "cannot inline function with empty body");
 
       const goto_programt &goto_program=goto_function.body;
 
@@ -821,10 +816,12 @@ void goto_inlinet::goto_inline_logt::add_segment(
 {
   PRECONDITION(!goto_program.empty());
   PRECONDITION(!function.empty());
-  PRECONDITION(end_location_number>=begin_location_number);
+  PRECONDITION(end_location_number >= begin_location_number);
 
   goto_programt::const_targett start=goto_program.instructions.begin();
-  PRECONDITION(log_map.find(start)==log_map.end());
+  INVARIANT(
+    log_map.find(start) == log_map.end(),
+    "inline function should be registered once in map of inline functions");
 
   goto_programt::const_targett end=goto_program.instructions.end();
   end--;
@@ -843,21 +840,27 @@ void goto_inlinet::goto_inline_logt::copy_from(
   const goto_programt &from,
   const goto_programt &to)
 {
-  PRECONDITION(from.instructions.size()==to.instructions.size());
+  PRECONDITION(from.instructions.size() == to.instructions.size());
 
   goto_programt::const_targett it1=from.instructions.begin();
   goto_programt::const_targett it2=to.instructions.begin();
 
   for(; it1!=from.instructions.end(); it1++, it2++)
   {
-    assert(it2!=to.instructions.end());
-    assert(it1->location_number==it2->location_number);
+    DATA_INVARIANT(
+      it2 != to.instructions.end(),
+      "'to' target function is not allowed to be empty");
+    DATA_INVARIANT(
+      it1->location_number == it2->location_number,
+      "both functions' instruction should point to the same source");
 
     log_mapt::const_iterator l_it=log_map.find(it1);
     if(l_it!=log_map.end()) // a segment starts here
     {
       // as 'to' is a fresh copy
-      assert(log_map.find(it2)==log_map.end());
+      DATA_INVARIANT(
+        log_map.find(it2) == log_map.end(),
+        "'to' target is not expected to be in the log_map");
 
       goto_inline_log_infot info=l_it->second;
       goto_programt::const_targett end=info.end;
@@ -892,7 +895,7 @@ jsont goto_inlinet::goto_inline_logt::output_inline_log_json() const
     const goto_inline_log_infot &info=it.second;
     goto_programt::const_targett end=info.end;
 
-    assert(start->location_number<=end->location_number);
+    PRECONDITION(start->location_number <= end->location_number);
 
     object["call"]=json_numbert(std::to_string(info.call_location_number));
     object["function"]=json_stringt(info.function.c_str());

@@ -13,6 +13,7 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <algorithm>
 
+#include <util/exception_utils.h>
 #include <util/invariant.h>
 #include <util/pointer_offset_size.h>
 #include <util/std_expr.h>
@@ -48,8 +49,8 @@ void goto_symext::symex_goto(statet &state)
     !instruction.targets.empty(), "goto should have at least one target");
 
   // we only do deterministic gotos for now
-  if(instruction.targets.size()!=1)
-    throw "no support for non-deterministic gotos";
+  DATA_INVARIANT(
+    instruction.targets.size() == 1, "no support for non-deterministic gotos");
 
   goto_programt::const_targett goto_target=
     instruction.get_target();
@@ -86,7 +87,7 @@ void goto_symext::symex_goto(statet &state)
     unwind++;
 
     // continue unwinding?
-    if(get_unwind(state.source, unwind))
+    if(get_unwind(state.source, state.call_stack(), unwind))
     {
       // no!
       loop_bound_exceeded(state, new_guard);
@@ -254,7 +255,7 @@ void goto_symext::symex_goto(statet &state)
         log.debug(),
         [this, &new_lhs](messaget::mstreamt &mstream) {
           mstream << "Assignment to " << new_lhs.get_identifier()
-                  << " [" << pointer_offset_bits(new_lhs.type(), ns) << " bits]"
+                  << " [" << pointer_offset_bits(new_lhs.type(), ns).value_or(0) << " bits]"
                   << messaget::eom;
         });
 
@@ -345,8 +346,10 @@ void goto_symext::merge_goto(
   statet &state)
 {
   // check atomic section
-  if(state.atomic_section_id!=goto_state.atomic_section_id)
-    throw "atomic sections differ across branches";
+  if(state.atomic_section_id != goto_state.atomic_section_id)
+    throw incorrect_goto_program_exceptiont(
+      "atomic sections differ across branches",
+      state.source.pc->source_location);
 
   // do SSA phi functions
   phi_function(goto_state, state);
@@ -486,7 +489,7 @@ void goto_symext::phi_function(
       log.debug(),
       [this, &new_lhs](messaget::mstreamt &mstream) {
         mstream << "Assignment to " << new_lhs.get_identifier()
-                << " [" << pointer_offset_bits(new_lhs.type(), ns) << " bits]"
+                << " [" << pointer_offset_bits(new_lhs.type(), ns).value_or(0) << " bits]"
                 << messaget::eom;
       });
 
@@ -539,8 +542,9 @@ void goto_symext::loop_bound_exceeded(
 }
 
 bool goto_symext::get_unwind(
-  const symex_targett::sourcet &source,
-  unsigned unwind)
+  const symex_targett::sourcet &,
+  const goto_symex_statet::call_stackt &,
+  unsigned)
 {
   // by default, we keep going
   return false;

@@ -55,7 +55,8 @@ bool static_verifier(
           continue;
 
         exprt e(i_it->guard);
-        const ai_domain_baset &domain(ai.abstract_state_before(i_it));
+        auto dp = ai.abstract_state_before(i_it);
+        const ai_domain_baset &domain(*dp);
         domain.ai_simplify(e, ns);
 
         json_objectt &j=json_result.push_back().make_object();
@@ -104,7 +105,8 @@ bool static_verifier(
           continue;
 
         exprt e(i_it->guard);
-        const ai_domain_baset &domain(ai.abstract_state_before(i_it));
+        auto dp = ai.abstract_state_before(i_it);
+        const ai_domain_baset &domain(*dp);
         domain.ai_simplify(e, ns);
 
         xmlt &x=xml_result.new_element("result");
@@ -141,10 +143,8 @@ bool static_verifier(
     m.status() << "Writing XML report" << messaget::eom;
     out << xml_result;
   }
-  else
+  else if(options.get_bool_option("text"))
   {
-    INVARIANT(options.get_bool_option("text"), "Other output formats handled");
-
     forall_goto_functions(f_it, goto_model.goto_functions)
     {
       m.progress() << "Checking " << f_it->first << messaget::eom;
@@ -160,7 +160,8 @@ bool static_verifier(
           continue;
 
         exprt e(i_it->guard);
-        const ai_domain_baset &domain(ai.abstract_state_before(i_it));
+        auto dp = ai.abstract_state_before(i_it);
+        const ai_domain_baset &domain(*dp);
         domain.ai_simplify(e, ns);
 
         out << '[' << i_it->source_location.get_property_id()
@@ -200,11 +201,68 @@ bool static_verifier(
       out << '\n';
     }
   }
+  else
+  {
+    forall_goto_functions(f_it, goto_model.goto_functions)
+    {
+      if(!f_it->second.body.has_assertion())
+        continue;
 
-  m.status() << "Summary: "
+      m.result() << "******** Function " << f_it->first << messaget::eom;
+
+      forall_goto_program_instructions(i_it, f_it->second.body)
+      {
+        if(!i_it->is_assert())
+          continue;
+
+        exprt e(i_it->guard);
+        auto dp = ai.abstract_state_before(i_it);
+        const ai_domain_baset &domain(*dp);
+        domain.ai_simplify(e, ns);
+
+        m.result() << '[' << i_it->source_location.get_property_id() << ']'
+                   << ' ';
+
+        m.result() << i_it->source_location;
+
+        if(!i_it->source_location.get_comment().empty())
+          m.result() << ", " << i_it->source_location.get_comment();
+
+        m.result() << ": ";
+
+        if(e.is_true())
+        {
+          m.result() << m.green() << "Success" << m.reset();
+          pass++;
+        }
+        else if(e.is_false())
+        {
+          m.result() << m.red() << "Failure" << m.reset() << " (if reachable)";
+          fail++;
+        }
+        else if(domain.is_bottom())
+        {
+          m.result() << m.green() << "Success" << m.reset() << " (unreachable)";
+          pass++;
+        }
+        else
+        {
+          m.result() << m.yellow() << "Unknown" << m.reset();
+          unknown++;
+        }
+
+        m.result() << messaget::eom;
+      }
+
+      m.result() << messaget::eom;
+    }
+  }
+
+  m.status() << m.bold() << "Summary: "
              << pass << " pass, "
              << fail << " fail if reachable, "
-             << unknown << " unknown\n";
+             << unknown << " unknown"
+             << m.reset() << messaget::eom;
 
   return false;
 }

@@ -3,7 +3,6 @@ DIRS = analyses \
        assembler \
        big-int \
        cbmc \
-       clobber \
        cpp \
        goto-analyzer \
        goto-cc \
@@ -15,7 +14,6 @@ DIRS = analyses \
        json \
        langapi \
        linking \
-       memory-models \
        pointer-analysis \
        solvers \
        util \
@@ -62,7 +60,7 @@ goto-diff.dir: languages goto-programs.dir pointer-analysis.dir \
                linking.dir analyses.dir goto-instrument.dir \
                solvers.dir json.dir goto-symex.dir
 
-goto-cc.dir: languages pointer-analysis.dir goto-programs.dir linking.dir
+goto-cc.dir: languages goto-programs.dir linking.dir
 
 # building for a particular directory
 
@@ -106,19 +104,6 @@ glucose-download:
 	@mv glucose-syrup ../
 	@(cd ../glucose-syrup; patch -p1 < ../scripts/glucose-syrup-patch)
 	@rm glucose-syrup.tgz
-
-ipasir-download:
-	# get the 2016 version of the ipasir package, which contains a few solvers
-	@echo "Download ipasir 2016 package"
-	@(lwp-download http://baldur.iti.kit.edu/sat-competition-2016/downloads/ipasir.zip ../ipasir.zip)
-	@(cd ..; unzip -u ipasir.zip)
-
-ipasir-build: ipasir-download
-	# build libpicosat, and create a libipasir.a in ipasir directory
-	# make sure that the ipasir.h file is located there as well (ships with 2016 package)
-	@echo "Build Picosat 961 from ipasir 2016 package"
-	$(MAKE) -C ../ipasir/sat/picosat961 libipasirpicosat961.a
-	@(cd ../ipasir; ln -sf sat/picosat961/libipasirpicosat961.a libipasir.a)
 
 cadical_release = rel-06w
 cadical-download:

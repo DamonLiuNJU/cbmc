@@ -188,11 +188,10 @@ exprt smt2_parsert::let_expression()
   // go backwards, build let_expr
   for(auto r_it=bindings.rbegin(); r_it!=bindings.rend(); r_it++)
   {
-    let_exprt let;
-    let.symbol()=symbol_exprt(r_it->first, r_it->second.type());
-    let.value()=r_it->second;
-    let.type()=result.type();
-    let.where().swap(result);
+    const let_exprt let(
+      symbol_exprt(r_it->first, r_it->second.type()),
+      r_it->second,
+      result);
     result=let;
   }
 
@@ -280,16 +279,11 @@ exprt smt2_parsert::quantifier_expression(irep_idt id)
 }
 
 exprt smt2_parsert::function_application(
-  const irep_idt &identifier,
-  const exprt::operandst &op)
+  const irep_idt &,
+  const exprt::operandst &)
 {
   #if 0
   const auto &f = id_map[identifier];
-
-  function_application_exprt result;
-
-  result.function()=symbol_exprt(identifier, f.type);
-  result.arguments()=op;
 
   // check the arguments
   if(op.size()!=f.type.variables().size())
@@ -303,12 +297,12 @@ exprt smt2_parsert::function_application(
     if(op[i].type() != f.type.variables()[i].type())
     {
       error() << "wrong type for arguments for function" << eom;
-      return result;
+      return nil_exprt();
     }
   }
 
-  result.type()=f.type.range();
-  return result;
+  return function_application_exprt(
+    symbol_exprt(identifier, f.type), op, f.type.range());
   #endif
   return nil_exprt();
 }
@@ -675,12 +669,11 @@ exprt smt2_parsert::function_application()
         {
           if(id_it->second.type.id()==ID_mathematical_function)
           {
-            function_application_exprt app;
-            app.function()=symbol_exprt(final_id, id_it->second.type);
-            app.arguments()=op;
-            app.type()=to_mathematical_function_type(
-              id_it->second.type).codomain();
-            return app;
+            return function_application_exprt(
+              symbol_exprt(final_id, id_it->second.type),
+              op,
+              to_mathematical_function_type(
+                id_it->second.type).codomain());
           }
           else
             return symbol_exprt(final_id, id_it->second.type);

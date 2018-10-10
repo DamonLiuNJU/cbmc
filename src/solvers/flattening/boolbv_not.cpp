@@ -12,9 +12,7 @@ Author: Daniel Kroening, kroening@kroening.com
 bvt boolbvt::convert_not(const not_exprt &expr)
 {
   const bvt &op_bv=convert_bv(expr.op());
-
-  if(op_bv.empty())
-    throw "not operator takes one non-empty operand";
+  CHECK_RETURN(!op_bv.empty());
 
   const typet &op_type=expr.op().type();
 
@@ -23,7 +21,7 @@ bvt boolbvt::convert_not(const not_exprt &expr)
   {
     if((expr.type().id()==ID_verilog_signedbv ||
         expr.type().id()==ID_verilog_unsignedbv) &&
-        expr.type().get_int(ID_width)==1)
+        expr.type().get_size_t(ID_width) == 1)
     {
       literalt has_x_or_z=bv_utils.verilog_bv_has_x_or_z(op_bv);
       literalt normal_bits_zero=

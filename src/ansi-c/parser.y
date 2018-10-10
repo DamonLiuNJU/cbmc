@@ -150,7 +150,6 @@ extern char *yyansi_ctext;
 %token TOK_GCC_ATTRIBUTE_DESTRUCTOR "destructor"
 %token TOK_GCC_ATTRIBUTE_FALLTHROUGH "fallthrough"
 %token TOK_GCC_ATTRIBUTE_USED "used"
-%token TOK_GCC_ATTRIBUTE_ALWAYS_INLINE "always_inline"
 %token TOK_GCC_LABEL   "__label__"
 %token TOK_MSC_ASM     "__asm"
 %token TOK_MSC_BASED   "__based"
@@ -165,6 +164,7 @@ extern char *yyansi_ctext;
 %token TOK_MSC_EXCEPT  "__except"
 %token TOK_MSC_LEAVE   "__leave"
 %token TOK_MSC_DECLSPEC "__declspec"
+%token TOK_MSC_FORCEINLINE "__forceinline"
 %token TOK_INTERFACE   "__interface"
 %token TOK_CDECL       "__cdecl"
 %token TOK_STDCALL     "__stdcall"
@@ -376,8 +376,8 @@ gcc_builtin_expressions:
         {
           $$=$1;
           stack($$).id(ID_gcc_builtin_types_compatible_p);
-          typet &type_arg=(typet &)(stack($$).add(ID_type_arg));
-          typet::subtypest &subtypes=type_arg.subtypes();
+          auto &type_arg=static_cast<type_with_subtypest &>(stack($$).add(ID_type_arg));
+          auto &subtypes=type_arg.subtypes();
           subtypes.resize(2);
           subtypes[0].swap(stack($3));
           subtypes[1].swap(stack($5));
@@ -1385,6 +1385,25 @@ storage_class:
         | TOK_THREAD_LOCAL { $$=$1; set($$, ID_thread_local); }
         | TOK_GCC_ASM      { $$=$1; set($$, ID_asm); }
         | msc_declspec     { $$=$1; }
+        | TOK_MSC_FORCEINLINE
+        {
+          // equivalent to always_inline, and seemingly also has the semantics
+          // of extern inline in that multiple definitions can be provided in
+          // the same translation unit
+          init($$);
+          set($$, ID_static);
+          set($1, ID_inline);
+          #if 0
+          // enable once always_inline support is reinstantiated
+          $1=merge($1, $$);
+
+          init($$);
+          set($$, ID_always_inline);
+          $$=merge($1, $$);
+          #else
+          $$=merge($1, $$);
+          #endif
+        }
         ;
 
 basic_type_name:
@@ -1548,8 +1567,6 @@ gcc_type_attribute:
         { $$=$1; set($$, ID_destructor); }
         | TOK_GCC_ATTRIBUTE_USED
         { $$=$1; set($$, ID_used); }
-        | TOK_GCC_ATTRIBUTE_ALWAYS_INLINE
-        { $$=$1; set($$, ID_always_inline); }
         ;
 
 gcc_attribute:
@@ -1617,7 +1634,8 @@ member_declaration:
         | member_default_declaring_list ';'
         | ';' /* empty declaration */
         {
-          init($$, ID_declaration);
+          $$=$1; // the ';' becomes the location of the declaration
+          stack($$).id(ID_declaration);
         }
         | static_assert_declaration ';'
         ;
@@ -1634,6 +1652,7 @@ member_default_declaring_list:
 
           init($$, ID_declaration);
           to_ansi_c_declaration(stack($$)).set_is_member(true);
+          stack($$).add_source_location()=stack($2).source_location();
           stack($$).type().swap(stack($2));
           PARSER.add_declarator(stack($$), stack($3));
         }
@@ -1669,6 +1688,7 @@ member_declaring_list:
 
           init($$, ID_declaration);
           to_ansi_c_declaration(stack($$)).set_is_member(true);
+          stack($$).add_source_location()=stack($2).source_location();
           stack($$).type().swap(stack($2));
           PARSER.add_declarator(stack($$), stack($3));
         }
@@ -1838,7 +1858,7 @@ parameter_type_list:
         {
           typet tmp(ID_ellipsis);
           $$=$1;
-          stack_type($$).move_to_subtypes(tmp);
+          to_type_with_subtypes(stack_type($$)).move_to_subtypes(tmp);
         }
         ;
 
@@ -3172,7 +3192,7 @@ postfixing_abstract_declarator:
           set($$, ID_code);
           stack_type($$).subtype()=typet(ID_abstract);
           stack_type($$).add(ID_parameters).get_sub().
-            swap((irept::subt &)(stack_type($3).subtypes()));
+            swap((irept::subt &)(to_type_with_subtypes(stack_type($3)).subtypes()));
           PARSER.pop_scope();
           adjust_KnR_parameters(stack($$).add(ID_parameters), stack($5));
           stack($$).set(ID_C_KnR, true);
@@ -3202,7 +3222,7 @@ parameter_postfixing_abstract_declarator:
           set($$, ID_code);
           stack_type($$).subtype()=typet(ID_abstract);
           stack_type($$).add(ID_parameters).get_sub().
-            swap((irept::subt &)(stack_type($3).subtypes()));
+            swap((irept::subt &)(to_type_with_subtypes(stack_type($3)).subtypes()));
           PARSER.pop_scope();
 
           if(stack($5).is_not_nil())

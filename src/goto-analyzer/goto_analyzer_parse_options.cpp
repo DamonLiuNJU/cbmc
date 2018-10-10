@@ -24,20 +24,21 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <jsil/jsil_language.h>
 
+#include <goto-programs/adjust_float_expressions.h>
+#include <goto-programs/goto_convert_functions.h>
+#include <goto-programs/goto_inline.h>
 #include <goto-programs/initialize_goto_model.h>
-#include <goto-programs/set_properties.h>
+#include <goto-programs/link_to_library.h>
+#include <goto-programs/read_goto_binary.h>
+#include <goto-programs/remove_asm.h>
+#include <goto-programs/remove_complex.h>
 #include <goto-programs/remove_function_pointers.h>
-#include <goto-programs/remove_virtual_functions.h>
 #include <goto-programs/remove_returns.h>
 #include <goto-programs/remove_vector.h>
-#include <goto-programs/remove_complex.h>
-#include <goto-programs/remove_asm.h>
-#include <goto-programs/goto_convert_functions.h>
+#include <goto-programs/remove_virtual_functions.h>
+#include <goto-programs/set_properties.h>
 #include <goto-programs/show_properties.h>
 #include <goto-programs/show_symbol_table.h>
-#include <goto-programs/read_goto_binary.h>
-#include <goto-programs/goto_inline.h>
-#include <goto-programs/link_to_library.h>
 
 #include <analyses/is_threaded.h>
 #include <analyses/goto_check.h>
@@ -49,13 +50,12 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <langapi/mode.h>
 #include <langapi/language.h>
 
-#include <util/options.h>
 #include <util/config.h>
-#include <util/unicode.h>
+#include <util/exception_utils.h>
 #include <util/exit_codes.h>
-
-#include <cbmc/version.h>
-#include <goto-programs/adjust_float_expressions.h>
+#include <util/options.h>
+#include <util/unicode.h>
+#include <util/version.h>
 
 #include "taint_analysis.h"
 #include "unreachable_instructions.h"
@@ -65,10 +65,10 @@ Author: Daniel Kroening, kroening@kroening.com
 
 goto_analyzer_parse_optionst::goto_analyzer_parse_optionst(
   int argc,
-  const char **argv):
-  parse_options_baset(GOTO_ANALYSER_OPTIONS, argc, argv),
-  messaget(ui_message_handler),
-  ui_message_handler(cmdline, "GOTO-ANALYZER " CBMC_VERSION)
+  const char **argv)
+  : parse_options_baset(GOTO_ANALYSER_OPTIONS, argc, argv),
+    messaget(ui_message_handler),
+    ui_message_handler(cmdline, std::string("GOTO-ANALYZER ") + CBMC_VERSION)
 {
 }
 
@@ -179,11 +179,6 @@ void goto_analyzer_parse_optionst::get_command_line_options(optionst &options)
     options.set_option("dot", true);
     options.set_option("outfile", cmdline.get_value("dot"));
   }
-  else
-  {
-    options.set_option("text", true);
-    options.set_option("outfile", "-");
-  }
 
   // The use should either select:
   //  1. a specific analysis, or
@@ -203,6 +198,10 @@ void goto_analyzer_parse_optionst::get_command_line_options(optionst &options)
   }
   else if(cmdline.isset("simplify"))
   {
+    if(cmdline.get_value("simplify") == "-")
+      throw invalid_command_line_argument_exceptiont(
+        "cannot output goto binary to stdout", "--simplify");
+
     options.set_option("simplify", true);
     options.set_option("outfile", cmdline.get_value("simplify"));
     options.set_option("general-analysis", true);
@@ -375,16 +374,15 @@ int goto_analyzer_parse_optionst::doit()
   //
   // Print a banner
   //
-  status() << "GOTO-ANALYSER version " CBMC_VERSION " "
-           << sizeof(void *)*8 << "-bit "
-           << config.this_architecture() << " "
+  status() << "GOTO-ANALYSER version " << CBMC_VERSION << " "
+           << sizeof(void *) * 8 << "-bit " << config.this_architecture() << " "
            << config.this_operating_system() << eom;
 
   register_languages();
 
   try
   {
-    goto_model=initialize_goto_model(cmdline, get_message_handler());
+    goto_model = initialize_goto_model(cmdline, get_message_handler(), options);
   }
 
   catch(const char *e)
@@ -411,7 +409,7 @@ int goto_analyzer_parse_optionst::doit()
   // show it?
   if(cmdline.isset("show-symbol-table"))
   {
-    ::show_symbol_table(goto_model.symbol_table, get_ui());
+    ::show_symbol_table(goto_model.symbol_table, ui_message_handler);
     return CPROVER_EXIT_SUCCESS;
   }
 
@@ -588,14 +586,15 @@ int goto_analyzer_parse_optionst::perform_analysis(const optionst &options)
 
   if(options.get_bool_option("general-analysis"))
   {
-
     // Output file factory
     const std::string outfile=options.get_option("outfile");
+
     std::ofstream output_stream;
-    if(!(outfile=="-"))
+    if(outfile != "-" && !outfile.empty())
       output_stream.open(outfile);
 
-    std::ostream &out((outfile=="-") ? std::cout : output_stream);
+    std::ostream &out(
+      (outfile == "-" || outfile.empty()) ? std::cout : output_stream);
 
     if(!out)
     {
@@ -616,7 +615,6 @@ int goto_analyzer_parse_optionst::perform_analysis(const optionst &options)
       return CPROVER_EXIT_INTERNAL_ERROR;
     }
 
-
     // Run
     status() << "Computing abstract states" << eom;
     (*analyzer)(goto_model);
@@ -629,7 +627,6 @@ int goto_analyzer_parse_optionst::perform_analysis(const optionst &options)
       result = static_show_domain(goto_model,
                                   *analyzer,
                                   options,
-                                  get_message_handler(),
                                   out);
     }
     else if(options.get_bool_option("verify"))
@@ -642,6 +639,9 @@ int goto_analyzer_parse_optionst::perform_analysis(const optionst &options)
     }
     else if(options.get_bool_option("simplify"))
     {
+      PRECONDITION(!outfile.empty() && outfile != "-");
+      output_stream.close();
+      output_stream.open(outfile, std::ios::binary);
       result = static_simplifier(goto_model,
                                  *analyzer,
                                  options,
@@ -653,7 +653,6 @@ int goto_analyzer_parse_optionst::perform_analysis(const optionst &options)
       result = static_unreachable_instructions(goto_model,
                                                *analyzer,
                                                options,
-                                               get_message_handler(),
                                                out);
     }
     else if(options.get_bool_option("unreachable-functions"))
@@ -661,7 +660,6 @@ int goto_analyzer_parse_optionst::perform_analysis(const optionst &options)
       result = static_unreachable_functions(goto_model,
                                             *analyzer,
                                             options,
-                                            get_message_handler(),
                                             out);
     }
     else if(options.get_bool_option("reachable-functions"))
@@ -669,7 +667,6 @@ int goto_analyzer_parse_optionst::perform_analysis(const optionst &options)
       result = static_reachable_functions(goto_model,
                                           *analyzer,
                                           options,
-                                          get_message_handler(),
                                           out);
     }
     else
@@ -790,16 +787,11 @@ bool goto_analyzer_parse_optionst::process_goto_program(
 /// display command line help
 void goto_analyzer_parse_optionst::help()
 {
-  std::cout << "\n"
-               "* * GOTO-ANALYZER " CBMC_VERSION " - Copyright (C) 2017-2018 ";
-
-  std::cout << "(" << (sizeof(void *)*8) << "-bit version)";
-
-  std::cout << " * *\n";
-
   // clang-format off
-  std::cout <<
-    "* *                  Daniel Kroening, DiffBlue                   * *\n"
+  std::cout << '\n' << banner_string("GOTO-ANALYZER", CBMC_VERSION) << '\n'
+            <<
+    "* *                   Copyright (C) 2017-2018                    * *\n"
+    "* *                  Daniel Kroening, Diffblue                   * *\n"
     "* *                   kroening@kroening.com                      * *\n"
     "\n"
     "Usage:                       Purpose:\n"

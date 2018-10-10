@@ -17,9 +17,11 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <memory>
 
 #include <util/config.h>
-#include <util/unicode.h>
-#include <util/invariant.h>
+#include <util/exception_utils.h>
 #include <util/exit_codes.h>
+#include <util/invariant.h>
+#include <util/unicode.h>
+#include <util/version.h>
 
 #include <langapi/language.h>
 
@@ -44,14 +46,13 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <goto-programs/remove_asm.h>
 #include <goto-programs/remove_unused_functions.h>
 #include <goto-programs/remove_skip.h>
+#include <goto-programs/rewrite_union.h>
 #include <goto-programs/set_properties.h>
 #include <goto-programs/show_goto_functions.h>
 #include <goto-programs/show_symbol_table.h>
 #include <goto-programs/show_properties.h>
 #include <goto-programs/string_abstraction.h>
 #include <goto-programs/string_instrumentation.h>
-
-#include <goto-symex/rewrite_union.h>
 
 #include <goto-instrument/reachability_slicer.h>
 #include <goto-instrument/full_slicer.h>
@@ -62,27 +63,26 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <langapi/mode.h>
 
-#include "version.h"
 #include "xml_interface.h"
 
-cbmc_parse_optionst::cbmc_parse_optionst(int argc, const char **argv):
-  parse_options_baset(CBMC_OPTIONS, argc, argv),
-  xml_interfacet(cmdline),
-  messaget(ui_message_handler),
-  ui_message_handler(cmdline, "CBMC " CBMC_VERSION),
-  path_strategy_chooser()
+cbmc_parse_optionst::cbmc_parse_optionst(int argc, const char **argv)
+  : parse_options_baset(CBMC_OPTIONS, argc, argv),
+    xml_interfacet(cmdline),
+    messaget(ui_message_handler),
+    ui_message_handler(cmdline, std::string("CBMC ") + CBMC_VERSION),
+    path_strategy_chooser()
 {
 }
 
 ::cbmc_parse_optionst::cbmc_parse_optionst(
   int argc,
   const char **argv,
-  const std::string &extra_options):
-  parse_options_baset(CBMC_OPTIONS+extra_options, argc, argv),
-  xml_interfacet(cmdline),
-  messaget(ui_message_handler),
-  ui_message_handler(cmdline, "CBMC " CBMC_VERSION),
-  path_strategy_chooser()
+  const std::string &extra_options)
+  : parse_options_baset(CBMC_OPTIONS + extra_options, argc, argv),
+    xml_interfacet(cmdline),
+    messaget(ui_message_handler),
+    ui_message_handler(cmdline, std::string("CBMC ") + CBMC_VERSION),
+    path_strategy_chooser()
 {
 }
 
@@ -133,6 +133,9 @@ void cbmc_parse_optionst::get_command_line_options(optionst &options)
             << "given together" << eom;
     exit(CPROVER_EXIT_USAGE_ERROR);
   }
+
+  if(cmdline.isset("full-slice"))
+    options.set_option("full-slice", true);
 
   if(cmdline.isset("show-symex-strategies"))
   {
@@ -198,8 +201,9 @@ void cbmc_parse_optionst::get_command_line_options(optionst &options)
      cmdline.isset("outfile"))
     options.set_option("stop-on-fail", true);
 
-  if(cmdline.isset("trace") ||
-     cmdline.isset("stop-on-fail"))
+  if(
+    cmdline.isset("trace") || cmdline.isset("stack-trace") ||
+    cmdline.isset("stop-on-fail"))
     options.set_option("trace", true);
 
   if(cmdline.isset("localize-faults"))
@@ -296,18 +300,12 @@ void cbmc_parse_optionst::get_command_line_options(optionst &options)
   {
     options.set_option("refine-strings", true);
     options.set_option("string-printable", cmdline.isset("string-printable"));
-    if(cmdline.isset("string-max-length"))
-      options.set_option(
-        "string-max-length", cmdline.get_value("string-max-length"));
   }
 
   if(cmdline.isset("max-node-refinement"))
     options.set_option(
       "max-node-refinement",
       cmdline.get_value("max-node-refinement"));
-
-  if(cmdline.isset("aig"))
-    options.set_option("aig", true);
 
   // SMT Options
 
@@ -433,9 +431,8 @@ int cbmc_parse_optionst::doit()
   //
   // Print a banner
   //
-  status() << "CBMC version " CBMC_VERSION " "
-           << sizeof(void *)*8 << "-bit "
-           << config.this_architecture() << " "
+  status() << "CBMC version " << CBMC_VERSION << " " << sizeof(void *) * 8
+           << "-bit " << config.this_architecture() << " "
            << config.this_operating_system() << eom;
 
   //
@@ -459,7 +456,7 @@ int cbmc_parse_optionst::doit()
 
   if(cmdline.isset("preprocess"))
   {
-    preprocessing();
+    preprocessing(options);
     return CPROVER_EXIT_SUCCESS;
   }
 
@@ -497,7 +494,7 @@ int cbmc_parse_optionst::doit()
       return CPROVER_EXIT_INCORRECT_TASK;
     }
 
-    language->get_language_options(cmdline);
+    language->set_language_options(options);
     language->set_message_handler(get_message_handler());
 
     status() << "Parsing " << filename << eom;
@@ -530,11 +527,7 @@ int cbmc_parse_optionst::doit()
     return CPROVER_EXIT_SET_PROPERTIES_FAILED;
 
   return bmct::do_language_agnostic_bmc(
-    path_strategy_chooser,
-    options,
-    goto_model,
-    ui_message_handler.get_ui(),
-    *this);
+    path_strategy_chooser, options, goto_model, ui_message_handler);
 }
 
 bool cbmc_parse_optionst::set_properties()
@@ -584,11 +577,11 @@ int cbmc_parse_optionst::get_goto_program(
 
   try
   {
-    goto_model = initialize_goto_model(cmdline, ui_message_handler);
+    goto_model = initialize_goto_model(cmdline, ui_message_handler, options);
 
     if(cmdline.isset("show-symbol-table"))
     {
-      show_symbol_table(goto_model, ui_message_handler.get_ui());
+      show_symbol_table(goto_model, ui_message_handler);
       return CPROVER_EXIT_SUCCESS;
     }
 
@@ -618,6 +611,12 @@ int cbmc_parse_optionst::get_goto_program(
     log.status() << config.object_bits_info() << log.eom;
   }
 
+  catch(incorrect_goto_program_exceptiont &e)
+  {
+    log.error() << e.what() << log.eom;
+    return CPROVER_EXIT_EXCEPTION;
+  }
+
   catch(const char *e)
   {
     log.error() << e << log.eom;
@@ -645,7 +644,7 @@ int cbmc_parse_optionst::get_goto_program(
   return -1; // no error, continue
 }
 
-void cbmc_parse_optionst::preprocessing()
+void cbmc_parse_optionst::preprocessing(const optionst &options)
 {
   try
   {
@@ -666,7 +665,7 @@ void cbmc_parse_optionst::preprocessing()
     }
 
     std::unique_ptr<languaget> language=get_language_from_filename(filename);
-    language->get_language_options(cmdline);
+    language->set_language_options(options);
 
     if(language==nullptr)
     {
@@ -867,15 +866,9 @@ bool cbmc_parse_optionst::process_goto_program(
 void cbmc_parse_optionst::help()
 {
   // clang-format off
-  std::cout <<
-    "\n"
-    "* *   CBMC " CBMC_VERSION " - Copyright (C) 2001-2018 ";
-
-  std::cout << "(" << (sizeof(void *)*8) << "-bit version)";
-
-  std::cout << "   * *\n";
-
-  std::cout <<
+  std::cout << '\n' << banner_string("CBMC", CBMC_VERSION) << '\n'
+            <<
+    "* *                 Copyright (C) 2001-2018                 * *\n"
     "* *              Daniel Kroening, Edmund Clarke             * *\n"
     "* * Carnegie Mellon University, Computer Science Department * *\n"
     "* *                 kroening@kroening.com                   * *\n"
@@ -937,7 +930,6 @@ void cbmc_parse_optionst::help()
     " --show-parse-tree            show parse tree\n"
     " --show-symbol-table          show loaded symbol table\n"
     HELP_SHOW_GOTO_FUNCTIONS
-    " --drop-unused-functions      drop functions trivially unreachable from main function\n" // NOLINT(*)
     "\n"
     "Program instrumentation options:\n"
     HELP_GOTO_CHECK
@@ -947,7 +939,9 @@ void cbmc_parse_optionst::help()
     " --cover CC                   create test-suite with coverage criterion CC\n" // NOLINT(*)
     " --mm MM                      memory consistency model for concurrent programs\n" // NOLINT(*)
     HELP_REACHABILITY_SLICER
+    HELP_REACHABILITY_SLICER_FB
     " --full-slice                 run full slicer (experimental)\n" // NOLINT(*)
+    " --drop-unused-functions      drop functions trivially unreachable from main function\n" // NOLINT(*)
     "\n"
     "Semantic transformations:\n"
     // NOLINTNEXTLINE(whitespace/line_length)
@@ -961,7 +955,6 @@ void cbmc_parse_optionst::help()
     " --dimacs                     generate CNF in DIMACS format\n"
     " --beautify                   beautify the counterexample (greedy heuristic)\n" // NOLINT(*)
     " --localize-faults            localize faults (experimental)\n"
-    " --smt1                       use default SMT1 solver (obsolete)\n"
     " --smt2                       use default SMT2 solver (Z3)\n"
     " --boolector                  use Boolector\n"
     " --mathsat                    use MathSAT\n"
@@ -969,11 +962,7 @@ void cbmc_parse_optionst::help()
     " --yices                      use Yices\n"
     " --z3                         use Z3\n"
     " --refine                     use refinement procedure (experimental)\n"
-    " --refine-strings             use string refinement (experimental)\n"
-    " --string-printable           add constraint that strings are printable (experimental)\n" // NOLINT(*)
-    " --string-max-input-length    add constraint on the length of input strings\n" // NOLINT(*)
-    " --string-max-length          add constraint on the length of strings"
-    "                              (deprecated: use string-max-input-length instead)\n" // NOLINT(*)
+    HELP_STRING_REFINEMENT_CBMC
     " --outfile filename           output formula to given file\n"
     " --arrays-uf-never            never turn arrays into uninterpreted functions\n" // NOLINT(*)
     " --arrays-uf-always           always turn arrays into uninterpreted functions\n" // NOLINT(*)

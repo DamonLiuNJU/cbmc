@@ -16,7 +16,7 @@ Author: Daniel Kroening, kroening@kroening.com
 
 void java_bytecode_typecheckt::typecheck_type(typet &type)
 {
-  if(type.id()==ID_symbol)
+  if(type.id() == ID_symbol_type)
   {
     irep_idt identifier=to_symbol_type(type).get_identifier();
 
@@ -38,13 +38,14 @@ void java_bytecode_typecheckt::typecheck_type(typet &type)
   }
   else if(type.id()==ID_code)
   {
-    code_typet &code_type=to_code_type(type);
-    typecheck_type(code_type.return_type());
+    java_method_typet &method_type = to_java_method_type(type);
+    typecheck_type(method_type.return_type());
 
-    code_typet::parameterst &parameters=code_type.parameters();
+    java_method_typet::parameterst &parameters = method_type.parameters();
 
-    for(code_typet::parameterst::iterator
-        it=parameters.begin(); it!=parameters.end(); it++)
+    for(java_method_typet::parameterst::iterator it = parameters.begin();
+        it != parameters.end();
+        it++)
       typecheck_type(it->type());
   }
 }

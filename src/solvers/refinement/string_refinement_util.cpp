@@ -36,7 +36,7 @@ bool is_char_type(const typet &type)
 
 bool is_char_array_type(const typet &type, const namespacet &ns)
 {
-  if(type.id() == ID_symbol)
+  if(type.id() == ID_symbol_type)
     return is_char_array_type(ns.follow(type), ns);
   return type.id() == ID_array && is_char_type(type.subtype());
 }
@@ -73,12 +73,16 @@ sparse_arrayt::sparse_arrayt(const with_exprt &expr)
   default_value = expr_dynamic_cast<array_of_exprt>(ref.get()).what();
 }
 
-exprt sparse_arrayt::to_if_expression(const exprt &index) const
+exprt sparse_arrayt::to_if_expression(
+  const with_exprt &expr,
+  const exprt &index)
 {
+  sparse_arrayt sparse_array(expr);
+
   return std::accumulate(
-    entries.begin(),
-    entries.end(),
-    default_value,
+    sparse_array.entries.begin(),
+    sparse_array.entries.end(),
+    sparse_array.default_value,
     [&](
       const exprt if_expr,
       const std::pair<std::size_t, exprt> &entry) { // NOLINT
@@ -88,12 +92,6 @@ exprt sparse_arrayt::to_if_expression(const exprt &index) const
       const equal_exprt index_equal(index, entry_index);
       return if_exprt(index_equal, then_expr, if_expr, if_expr.type());
     });
-}
-
-exprt sparse_arrayt::at(const std::size_t index) const
-{
-  const auto it = entries.find(index);
-  return it != entries.end() ? it->second : default_value;
 }
 
 exprt interval_sparse_arrayt::to_if_expression(const exprt &index) const
@@ -226,6 +224,22 @@ static std::unique_ptr<string_builtin_functiont> to_string_builtin_function(
     return util_make_unique<string_concat_char_builtin_functiont>(
       return_code, fun_app.arguments(), array_pool);
 
+  if(id == ID_cprover_string_of_int_func)
+    return util_make_unique<string_of_int_builtin_functiont>(
+      return_code, fun_app.arguments(), array_pool);
+
+  if(id == ID_cprover_string_char_set_func)
+    return util_make_unique<string_set_char_builtin_functiont>(
+      return_code, fun_app.arguments(), array_pool);
+
+  if(id == ID_cprover_string_to_lower_case_func)
+    return util_make_unique<string_to_lower_case_builtin_functiont>(
+      return_code, fun_app.arguments(), array_pool);
+
+  if(id == ID_cprover_string_to_upper_case_func)
+    return util_make_unique<string_to_upper_case_builtin_functiont>(
+      return_code, fun_app.arguments(), array_pool);
+
   return util_make_unique<string_builtin_function_with_no_evalt>(
     return_code, fun_app, array_pool);
 }
@@ -320,7 +334,7 @@ static void add_dependency_to_string_subexprs(
         if(is_refined_string_type(e.type()))
         {
           const auto string_struct = expr_checked_cast<struct_exprt>(e);
-          const auto string = array_pool.of_argument(string_struct);
+          const auto string = of_argument(array_pool, string_struct);
           dependencies.add_dependency(string, builtin_function_node);
         }
       });
@@ -483,7 +497,8 @@ void string_dependenciest::output_dot(std::ostream &stream) const
     return ostream.str();
   };
   stream << "digraph dependencies {\n";
-  output_dot_generic<nodet>(stream, for_each, for_each_succ, node_to_string);
+  output_dot_generic<nodet>(
+    stream, for_each, for_each_succ, node_to_string, node_to_string);
   stream << '}' << std::endl;
 }
 
@@ -510,10 +525,11 @@ void string_dependenciest::add_constraints(
     if(test_dependencies.count(nodet(node)))
     {
       const auto &builtin = builtin_function_nodes[node.index];
-      const exprt return_value = builtin.data->add_constraints(generator);
-      generator.add_lemma(equal_exprt(return_value, builtin.data->return_code));
+      string_constraintst constraints = builtin.data->constraints(generator);
+      merge(generator.constraints, std::move(constraints));
     }
     else
-      generator.add_lemma(node.data->length_constraint());
+      generator.constraints.existential.push_back(
+        node.data->length_constraint());
   }
 }

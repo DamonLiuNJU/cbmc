@@ -8,7 +8,7 @@ Author: Martin Brain, martin.brain@diffblue.com
 
 #include "invariant.h"
 
-#include "util/freer.h"
+#include "freer.h"
 
 #include <memory>
 #include <string>
@@ -20,7 +20,7 @@ Author: Martin Brain, martin.brain@diffblue.com
 // So we should include something explicitly from the C library
 // to check if the C library is glibc.
 #include <assert.h>
-#ifdef __GLIBC__
+#if defined(__GLIBC__) || defined(__APPLE__)
 
 // GCC needs LINKFLAGS="-rdynamic" to give function names in the backtrace
 #include <execinfo.h>
@@ -78,9 +78,7 @@ static bool output_demangled_name(
 void print_backtrace(
   std::ostream &out)
 {
-#ifdef __GLIBC__
-    out << "Backtrace\n" << std::flush;
-
+#if defined(__GLIBC__) || defined(__APPLE__)
     void * stack[50] = {};
 
     std::size_t entries=backtrace(stack, sizeof(stack) / sizeof(void *));
@@ -116,20 +114,24 @@ void report_exception_to_stderr(const invariant_failedt &reason)
   std::cerr << "--- end invariant violation report ---\n";
 }
 
-std::string invariant_failedt::get_invariant_failed_message(
-  const std::string &file,
-  const std::string &function,
-  int line,
-  const std::string &backtrace,
-  const std::string &reason)
+std::string invariant_failedt::what() const noexcept
 {
   std::ostringstream out;
   out << "Invariant check failed\n"
-      << "File " << file
-      << " function " << function
-      << " line " << line << '\n'
-      << "Reason: " << reason
-      << "\nBacktrace:\n"
+      << "File: " << file << ":" << line << " function: " << function << '\n'
+      << "Condition: " << condition << '\n'
+      << "Reason: " << reason << '\n'
+      << "Backtrace:" << '\n'
       << backtrace << '\n';
   return out.str();
+}
+
+std::string invariant_with_diagnostics_failedt::what() const noexcept
+{
+  std::string s(invariant_failedt::what());
+
+  if(!s.empty() && s.back() != '\n')
+    s += '\n';
+
+  return s + "Diagnostics: " + diagnostics + '\n';
 }

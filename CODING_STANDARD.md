@@ -59,12 +59,13 @@ Formatting is enforced using clang-format. For more information about this, see
   ```
   Note that the `\file` tag must be immediately followed by a newline in order
   for Doxygen to relate the comment to the current file.
-- Each function should be preceded by a Doxygen comment describing that
-  function. The format should match the [LLVM
+- Each class, member variable and function should be preceded by a Doxygen
+  comment describing it when it is not immediately obvious what it does. The
+  format should match the [LLVM
   guidelines](http://llvm.org/docs/CodingStandards.html#doxygen-use-in-documentation-comments),
-  with one extension: `\param` and `\return` comments longer than a single line
-  should have subsequent lines indented by two spaces, so that the tags stand
-  out. An example:
+  with one extension: for functions, `\param` and `\return` comments longer than
+  a single line should have subsequent lines indented by two spaces, so that the
+  tags stand out. An example:
   ```c++
   /// This sentence, until the first dot followed by whitespace, becomes
   /// the brief description. More detailed text follows. Feel free to
@@ -93,8 +94,12 @@ Formatting is enforced using clang-format. For more information about this, see
 - Use #ifdef DEBUG to guard debug code
 
 # Naming
+- Identifiers should make clear the purpose of the thing they are naming. 
 - Identifiers may use the characters `[a-z0-9_]` and should start with a
   lower-case letter (parameters in constructors may start with `_`).
+- Omit names of parameters or exception objects when they are not used. If
+  parameter names help documenting an interface, keep the name and use
+  `(void)parameter_name;` in the body of the method.
 - Use American spelling for identifiers.
 - Separate basic words by `_`
 - Avoid abbreviations (e.g. prefer `symbol_table` to `st`).
@@ -186,13 +191,25 @@ Formatting is enforced using clang-format. For more information about this, see
   - The type is explicitly repeated on the RHS (e.g. a constructor call)
   - Adding the type will increase confusion (e.g. iterators, function pointers)
 - Avoid `assert`. If the condition is an actual invariant, use INVARIANT,
-  PRECONDITION, POSTCONDITION, CHECK_RETURN, UNREACHABLE or DATA_INVARIANT. If
-  there are possible reasons why it might fail, throw an exception.
+  PRECONDITION, POSTCONDITION, CHECK_RETURN, UNREACHABLE or DATA_INVARIANT (also
+  see the documentation of the macros in `src/util/invariant.h`). If there are
+  possible reasons why it might fail, throw an exception.
+    - Use "should" style statements for messages in invariants (e.g. "array
+      should have a non-zero size") to make both the violation and the expected
+      behavior clear. (As opposed to "no zero size arrays" where it isn't clear
+      if the zero-size array is the problem, or the lack of it).
+    - The statements should start with a lower case letter.
 - All raw pointers (such as those returned by `symbol_tablet::lookup`) are
   assumed to be non-owning, and should not be `delete`d. Raw pointers that
   point to heap-allocated memory should be private data members of an object
   which safely manages the pointer. As such, `new` should only be used in
   constructors, and `delete` in destructors. Never use `malloc` or `free`.
+
+# CProver conventions
+- Avoid if at all possible using irept methods like `get(ID_name)`, instead cast
+  to a derived type (e.g. `class_typet`) and use the wrapper method `get_name`
+- Use `can_cast_type`/`can_cast_expr` instead of directly checking the `id()`
+  of an `irept`.
 
 # Architecture-specific code
 - Avoid if possible.
@@ -240,3 +257,97 @@ or use a symbolic link. Then, when running git commit, you should get the
 linter output (if any) before being prompted to enter a commit message. To
 bypass the check (e.g. if there was a false positive), add the option
 `--no-verify`.
+
+# CODE COVERAGE
+
+Code coverage metrics are provided using gcov and lcov. Ensure that you have
+installed lcov from http://ltp.sourceforge.net/coverage/lcov.php note for
+ubuntu lcov is available in the standard apt-get repos.
+
+To get coverage metrics run the following script from the regression directory:
+```
+get_coverage.sh
+```
+This will:
+ 1) Rebuild CBMC with gcov enabled
+ 2) Run all the regression tests
+ 3) Collate the coverage metrics
+ 4) Provide an HTML report of the current coverage
+
+# USING CLANG-FORMAT
+
+CBMC uses clang-format to ensure that the formatting of new patches is readable
+and consistent. There are two main ways of running clang-format: remotely, and
+locally.
+
+## RUNNING CLANG-FORMAT REMOTELY
+
+When patches are submitted to CBMC, they are automatically run through
+continuous integration (CI). One of the CI checks will run clang-format over
+the diff that your pull request introduces. If clang-format finds formatting
+issues at this point, the build will be failed, and a patch will be produced
+in the CI output that you can apply to your code so that it conforms to the
+style guidelines.
+
+To apply the patch, copy and paste it into a local file (`patch.txt`) and then
+run:
+```
+patch -p1 -i patch.txt
+```
+Now, you can commit and push the formatting fixes.
+
+## RUNNING CLANG-FORMAT LOCALLY
+
+### INSTALLATION
+
+To avoid waiting until you've made a PR to find formatting issues, you can
+install clang-format locally and run it against your code as you are working.
+
+Different versions of clang-format have slightly different behaviors. CBMC uses
+clang-format-3.8 as it is available the repositories for Ubuntu 16.04 and
+Homebrew.
+To install on a Unix-like system, try installing using the system package
+manager:
+```
+apt-get install clang-format-3.8  # Run this on Ubuntu, Debian etc.
+brew install clang-format@3.8     # Run this on a Mac with Homebrew installed
+```
+
+If your platform doesn't have a package for clang-format, you can download a
+pre-built binary, or compile clang-format yourself using the appropriate files
+from the [LLVM Downloads page](http://releases.llvm.org/download.html).
+
+An installer for Windows (along with a Visual Studio plugin) can be found at
+the [LLVM Snapshot Builds page](http://llvm.org/builds/).
+
+### FORMATTING A RANGE OF COMMITS
+
+Clang-format is distributed with a driver script called git-clang-format-3.8.
+This script can be used to format git diffs (rather than entire files).
+
+After committing some code, it is recommended to run:
+```
+git-clang-format-3.8 upstream/develop
+```
+*Important:* If your branch is based on a branch other than `upstream/develop`,
+use the name or checksum of that branch instead. It is strongly recommended to
+rebase your work onto the tip of the branch it's based on before running
+`git-clang-format` in this way.
+
+### RETROACTIVELY FORMATTING INDIVIDUAL COMMITS
+
+If your works spans several commits and you'd like to keep the formatting
+correct in each individual commit, you can automatically rewrite the commits
+with correct formatting.
+
+The following command will stop at each commit in the range and run
+clang-format on the diff at that point.  This rewrites git history, so it's
+*unsafe*, and you should back up your branch before running this command:
+```
+git filter-branch --tree-filter 'git-clang-format-3.8 upstream/develop' \
+  -- upstream/develop..HEAD
+```
+*Important*: `upstream/develop` should be changed in *both* places in the
+command above if your work is based on a different branch. It is strongly
+recommended to rebase your work onto the tip of the branch it's based on before
+running `git-clang-format` in this way.

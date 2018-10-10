@@ -1,15 +1,12 @@
 SRC = all_properties.cpp \
       bmc.cpp \
       bmc_cover.cpp \
-      bv_cbmc.cpp \
-      cbmc_dimacs.cpp \
       cbmc_languages.cpp \
       cbmc_main.cpp \
       cbmc_parse_options.cpp \
       cbmc_solvers.cpp \
       counterexample_beautification.cpp \
       fault_localization.cpp \
-      show_vcc.cpp \
       symex_bmc.cpp \
       symex_coverage.cpp \
       xml_interface.cpp \

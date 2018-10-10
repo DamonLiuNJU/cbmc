@@ -16,44 +16,43 @@ Author: Diffblue Ltd
 
 #include "java_class_loader_limit.h"
 
-void jar_filet::initialize_file_index(java_class_loader_limitt &limit)
+void jar_filet::initialize_file_index()
 {
   const size_t file_count=m_zip_archive.get_num_files();
   for(size_t index=0; index<file_count; index++)
   {
     const auto filename=m_zip_archive.get_filename(index);
-    if(!has_suffix(filename, ".class") || limit.load_class_file(filename))
-      m_name_to_index.emplace(filename, index);
+    m_name_to_index.emplace(filename, index);
   }
 }
 
 /// This constructor creates a jar_file object whose contents
 /// are extracted from a file with given name.
 jar_filet::jar_filet(
-  java_class_loader_limitt &limit,
   const std::string &filename):
   m_zip_archive(filename)
 {
-  initialize_file_index(limit);
+  initialize_file_index();
 }
 
 /// This constructor creates a jar_file object whose contents
 /// are extracted from a memory buffer (byte array) as opposed
 /// to a jar file.
 jar_filet::jar_filet(
-  java_class_loader_limitt &limit,
   const void *data,
   size_t size):
   m_zip_archive(data, size)
 {
-  initialize_file_index(limit);
+  initialize_file_index();
 }
 
 // VS: No default move constructors or assigns
 
-jar_filet::jar_filet(jar_filet &&other):
-  m_zip_archive(std::move(other.m_zip_archive)),
-  m_name_to_index((other.m_name_to_index)) {}
+jar_filet::jar_filet(jar_filet &&other)
+  : m_zip_archive(std::move(other.m_zip_archive)),
+    m_name_to_index(std::move(other.m_name_to_index))
+{
+}
 
 jar_filet &jar_filet::operator=(jar_filet &&other)
 {
@@ -78,12 +77,20 @@ optionalt<std::string> jar_filet::get_entry(const std::string &name)
   }
 }
 
+/// Wrapper for `std::isspace` from `cctype`
+/// \param ch: the character to check
+/// \return true if the parameter is considered to be a space in the current
+///   locale, else false
 static bool is_space(const char ch)
 {
-  return std::isspace(ch);
+  return std::isspace(ch) != 0;
 }
 
 /// Remove leading and trailing whitespace characters from string
+/// \param begin: iterator to start search in string
+/// \param end: iterator to end search in string
+/// \return string truncated from begin to end and all whitespace removed at the
+///   begin and end
 static std::string trim(
   const std::string::const_iterator begin,
   const std::string::const_iterator end)

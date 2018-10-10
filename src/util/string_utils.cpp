@@ -109,17 +109,20 @@ void split_string(
   std::vector<std::string> result;
 
   split_string(s, delim, result, strip);
-  if(result.size()!=2)
-    throw "split string did not generate exactly 2 parts";
+  CHECK_RETURN(result.size() == 2);
 
   left=result[0];
   right=result[1];
 }
 
-std::vector<std::string> split_string(const std::string &s, char delim)
+std::vector<std::string> split_string(
+  const std::string &s,
+  char delim,
+  bool strip,
+  bool remove_empty)
 {
   std::vector<std::string> result;
-  split_string(s, delim, result);
+  split_string(s, delim, result, strip, remove_empty);
   return result;
 }
 
@@ -147,4 +150,25 @@ std::string escape(const std::string &s)
   }
 
   return result;
+}
+
+/// Replace all occurrences of a string inside a string
+/// \param [out] str: string to search
+/// \param from: string to replace
+/// \param to: string to replace with
+/// Copyright notice:
+/// Attributed to Gauthier Boaglio
+/// Source: https://stackoverflow.com/a/24315631/7501486
+/// Used under MIT license
+void replace_all(
+  std::string &str,
+  const std::string &from,
+  const std::string &to)
+{
+  size_t start_pos = 0;
+  while((start_pos = str.find(from, start_pos)) != std::string::npos)
+  {
+    str.replace(start_pos, from.length(), to);
+    start_pos += to.length();
+  }
 }

@@ -30,7 +30,11 @@ void split_string(
   std::string &right,
   bool strip=false);
 
-std::vector<std::string> split_string(const std::string &s, char delim);
+std::vector<std::string> split_string(
+  const std::string &s,
+  char delim,
+  bool strip = false,
+  bool remove_empty = false);
 
 std::string trim_from_last_delimiter(
   const std::string &s,
@@ -66,5 +70,7 @@ Stream &join_strings(
 /// Generic escaping of strings; this is not meant to be a particular
 /// programming language.
 std::string escape(const std::string &);
+
+void replace_all(std::string &, const std::string &, const std::string &);
 
 #endif

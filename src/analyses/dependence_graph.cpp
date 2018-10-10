@@ -24,8 +24,8 @@ Date: August 2013
 
 bool dep_graph_domaint::merge(
   const dep_graph_domaint &src,
-  goto_programt::const_targett from,
-  goto_programt::const_targett to)
+  goto_programt::const_targett,
+  goto_programt::const_targett)
 {
   // An abstract state at location `to` may be non-bottom even if
   // `merge(..., `to`) has not been called so far. This is due to the special
@@ -151,7 +151,7 @@ static bool may_be_def_use_pair(
 }
 
 void dep_graph_domaint::data_dependencies(
-  goto_programt::const_targett from,
+  goto_programt::const_targett,
   goto_programt::const_targett to,
   dependence_grapht &dep_graph,
   const namespacet &ns)
@@ -237,8 +237,8 @@ void dep_graph_domaint::transform(
 
 void dep_graph_domaint::output(
   std::ostream &out,
-  const ai_baset &ai,
-  const namespacet &ns) const
+  const ai_baset &,
+  const namespacet &) const
 {
   if(!control_deps.empty())
   {
@@ -275,8 +275,8 @@ void dep_graph_domaint::output(
 /// \par parameters: The abstract interpreter and the namespace.
 /// \return The domain, formatted as a JSON object.
 jsont dep_graph_domaint::output_json(
-  const ai_baset &ai,
-  const namespacet &ns) const
+  const ai_baset &,
+  const namespacet &) const
 {
   json_arrayt graph;
 
@@ -307,9 +307,9 @@ void dependence_grapht::add_dep(
   goto_programt::const_targett from,
   goto_programt::const_targett to)
 {
-  const node_indext n_from=state_map[from].get_node_id();
+  const node_indext n_from = (*this)[from].get_node_id();
   assert(n_from<size());
-  const node_indext n_to=state_map[to].get_node_id();
+  const node_indext n_to = (*this)[to].get_node_id();
   assert(n_to<size());
 
   // add_edge is redundant as the subsequent operations also insert

@@ -188,7 +188,7 @@ void c_typecheck_baset::typecheck_block(codet &code)
 
   // do decl-blocks
 
-  exprt new_ops;
+  code_blockt new_ops;
   new_ops.operands().reserve(code.operands().size());
 
   Forall_operands(it1, code)
@@ -211,10 +211,10 @@ void c_typecheck_baset::typecheck_block(codet &code)
 
       // codet &label_op=*code_ptr;
 
-      new_ops.move_to_operands(code_op);
+      new_ops.move(code_op);
     }
     else
-      new_ops.move_to_operands(code_op);
+      new_ops.move(code_op);
   }
 
   code.operands().swap(new_ops.operands());
@@ -322,9 +322,8 @@ void c_typecheck_baset::typecheck_decl(codet &code)
     }
     else
     {
-      code_declt code;
+      code_declt code(symbol.symbol_expr());
       code.add_source_location()=symbol.location;
-      code.symbol()=symbol.symbol_expr();
       code.symbol().add_source_location()=symbol.location;
 
       // add initializer, if any
@@ -354,7 +353,7 @@ void c_typecheck_baset::typecheck_decl(codet &code)
   else
   {
     // build a decl-block
-    code_blockt code_block(new_code);
+    auto code_block=code_blockt::from_list(new_code);
     code_block.set_statement(ID_decl_block);
     code.swap(code_block);
   }
@@ -373,19 +372,16 @@ bool c_typecheck_baset::is_complete_type(const typet &type) const
   }
   else if(type.id()==ID_struct || type.id()==ID_union)
   {
-    const struct_union_typet::componentst &components=
-      to_struct_union_type(type).components();
-    for(struct_union_typet::componentst::const_iterator
-        it=components.begin();
-        it!=components.end();
-        it++)
-      if(!is_complete_type(it->type()))
+    for(const auto &c : to_struct_union_type(type).components())
+      if(!is_complete_type(c.type()))
         return false;
   }
   else if(type.id()==ID_vector)
     return is_complete_type(type.subtype());
-  else if(type.id()==ID_symbol)
+  else if(type.id() == ID_struct_tag || type.id() == ID_union_tag)
+  {
     return is_complete_type(follow(type));
+  }
 
   return true;
 }
@@ -457,7 +453,7 @@ void c_typecheck_baset::typecheck_for(codet &code)
         code_blockt code_block;
         code_block.add_source_location()=code.op3().source_location();
 
-        code_block.move_to_operands(code.op3());
+        code_block.move(to_code(code.op3()));
         code.op3().swap(code_block);
       }
       typecheck_code(to_code(code.op3()));
@@ -485,9 +481,9 @@ void c_typecheck_baset::typecheck_for(codet &code)
     }
 
     code_block.reserve_operands(2);
-    code_block.move_to_operands(code.op0());
+    code_block.move(to_code(code.op0()));
     code.op0().make_nil();
-    code_block.move_to_operands(code);
+    code_block.move(code);
     code.swap(code_block);
     typecheck_code(code); // recursive call
   }
@@ -535,6 +531,7 @@ void c_typecheck_baset::typecheck_switch_case(code_switch_caset &code)
     exprt &case_expr=code.case_op();
     typecheck_expr(case_expr);
     implicit_typecast(case_expr, switch_op_type);
+    make_constant(case_expr);
   }
 }
 
@@ -561,9 +558,11 @@ void c_typecheck_baset::typecheck_gcc_switch_case_range(codet &code)
   typecheck_expr(code.op1());
   implicit_typecast(code.op0(), switch_op_type);
   implicit_typecast(code.op1(), switch_op_type);
+  make_constant(code.op0());
+  make_constant(code.op1());
 }
 
-void c_typecheck_baset::typecheck_gcc_local_label(codet &code)
+void c_typecheck_baset::typecheck_gcc_local_label(codet &)
 {
   // these are just declarations, e.g.,
   // __label__ here, there;
@@ -623,29 +622,25 @@ void c_typecheck_baset::typecheck_ifthenelse(code_ifthenelset &code)
 
   implicit_typecast_bool(cond);
 
-  if(to_code(code.then_case()).get_statement()==ID_decl_block)
+  if(code.then_case().get_statement() == ID_decl_block)
   {
-    code_blockt code_block;
+    code_blockt code_block({code.then_case()});
     code_block.add_source_location()=code.then_case().source_location();
-
-    code_block.move_to_operands(code.then_case());
-    code.then_case().swap(code_block);
+    code.then_case() = code_block;
   }
 
-  typecheck_code(to_code(code.then_case()));
+  typecheck_code(code.then_case());
 
   if(!code.else_case().is_nil())
   {
-    if(to_code(code.else_case()).get_statement()==ID_decl_block)
+    if(code.else_case().get_statement() == ID_decl_block)
     {
-      code_blockt code_block;
+      code_blockt code_block({code.else_case()});
       code_block.add_source_location()=code.else_case().source_location();
-
-      code_block.move_to_operands(code.else_case());
-      code.else_case().swap(code_block);
+      code.else_case() = code_block;
     }
 
-    typecheck_code(to_code(code.else_case()));
+    typecheck_code(code.else_case());
   }
 }
 
@@ -673,7 +668,8 @@ void c_typecheck_baset::typecheck_return(codet &code)
       warning().source_location = code.source_location();
       warning() << "non-void function should return a value" << eom;
 
-      code.copy_to_operands(side_effect_expr_nondett(return_type));
+      code.copy_to_operands(
+        side_effect_expr_nondett(return_type, code.source_location()));
     }
   }
   else if(code.operands().size()==1)
@@ -757,11 +753,9 @@ void c_typecheck_baset::typecheck_while(code_whilet &code)
 
   if(code.body().get_statement()==ID_decl_block)
   {
-    code_blockt code_block;
+    code_blockt code_block({code.body()});
     code_block.add_source_location()=code.body().source_location();
-
-    code_block.move_to_operands(code.body());
-    code.body().swap(code_block);
+    code.body() = code_block;
   }
   typecheck_code(code.body());
 
@@ -792,11 +786,9 @@ void c_typecheck_baset::typecheck_dowhile(code_dowhilet &code)
 
   if(code.body().get_statement()==ID_decl_block)
   {
-    code_blockt code_block;
+    code_blockt code_block({code.body()});
     code_block.add_source_location()=code.body().source_location();
-
-    code_block.move_to_operands(code.body());
-    code.body().swap(code_block);
+    code.body() = code_block;
   }
   typecheck_code(code.body());
 

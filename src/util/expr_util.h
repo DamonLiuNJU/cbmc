@@ -30,6 +30,9 @@ class symbolt;
 class typet;
 class namespacet;
 
+/// Returns true iff the argument is (syntactically) an lvalue.
+bool is_lvalue(const exprt &expr);
+
 /// splits an expression with >=3 operands into nested binary expressions
 exprt make_binary(const exprt &);
 
@@ -71,5 +74,27 @@ bool has_subtype(const typet &, const irep_idt &id, const namespacet &);
 
 /// lift up an if_exprt one level
 if_exprt lift_if(const exprt &, std::size_t operand_number);
+
+/// find the expression nested inside typecasts, if any
+const exprt &skip_typecast(const exprt &expr);
+
+/// Determine whether an expression is constant.  A literal constant is
+/// constant, but so are, e.g., sums over constants or addresses of objects.
+/// An implementation derive from this class to refine what it considers
+/// constant in a particular context by overriding is_constant and/or
+/// is_constant_address_of.
+class is_constantt
+{
+public:
+  /// returns true iff the expression can be considered constant
+  bool operator()(const exprt &e) const
+  {
+    return is_constant(e);
+  }
+
+protected:
+  virtual bool is_constant(const exprt &) const;
+  virtual bool is_constant_address_of(const exprt &) const;
+};
 
 #endif // CPROVER_UTIL_EXPR_UTIL_H

@@ -14,10 +14,12 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <cstdlib>
 #include <iostream>
 
-#include <util/invariant.h>
 #include <util/base_exceptions.h>
-#include <util/std_expr.h>
+#include <util/exception_utils.h>
+#include <util/expr_util.h>
+#include <util/invariant.h>
 #include <util/prefix.h>
+#include <util/std_expr.h>
 
 #include <analyses/dirty.h>
 
@@ -51,8 +53,7 @@ void goto_symex_statet::level0t::operator()(
 
   const symbolt *s;
   const bool found_l0 = !ns.lookup(obj_identifier, s);
-  DATA_INVARIANT(
-    found_l0, "level0: failed to find " + id2string(obj_identifier));
+  INVARIANT(found_l0, "level0: failed to find " + id2string(obj_identifier));
 
   // don't rename shared variables or functions
   if(s->type.id()==ID_code ||
@@ -79,125 +80,6 @@ void goto_symex_statet::level1t::operator()(ssa_exprt &ssa_expr)
   ssa_expr.set_level_1(it->second.second);
 }
 
-/// This function determines what expressions are to be propagated as
-/// "constants"
-bool goto_symex_statet::constant_propagation(const exprt &expr) const
-{
-  if(expr.is_constant())
-    return true;
-
-  if(expr.id()==ID_address_of)
-  {
-    const address_of_exprt &address_of_expr=to_address_of_expr(expr);
-
-    return constant_propagation_reference(address_of_expr.object());
-  }
-  else if(expr.id()==ID_typecast)
-  {
-    const typecast_exprt &typecast_expr=to_typecast_expr(expr);
-
-    return constant_propagation(typecast_expr.op());
-  }
-  else if(expr.id()==ID_plus)
-  {
-    forall_operands(it, expr)
-      if(!constant_propagation(*it))
-        return false;
-
-    return true;
-  }
-  else if(expr.id()==ID_mult)
-  {
-    // propagate stuff with sizeof in it
-    forall_operands(it, expr)
-    {
-      if(it->find(ID_C_c_sizeof_type).is_not_nil())
-        return true;
-      else if(!constant_propagation(*it))
-        return false;
-    }
-
-    return true;
-  }
-  else if(expr.id()==ID_array)
-  {
-    forall_operands(it, expr)
-      if(!constant_propagation(*it))
-        return false;
-
-    return true;
-  }
-  else if(expr.id()==ID_array_of)
-  {
-    return constant_propagation(expr.op0());
-  }
-  else if(expr.id()==ID_with)
-  {
-    // this is bad
-    /*
-    forall_operands(it, expr)
-      if(!constant_propagation(expr.op0()))
-        return false;
-
-    return true;
-    */
-    return false;
-  }
-  else if(expr.id()==ID_struct)
-  {
-    forall_operands(it, expr)
-      if(!constant_propagation(*it))
-        return false;
-
-    return true;
-  }
-  else if(expr.id()==ID_union)
-  {
-    forall_operands(it, expr)
-      if(!constant_propagation(*it))
-        return false;
-
-    return true;
-  }
-  // byte_update works, byte_extract may be out-of-bounds
-  else if(expr.id()==ID_byte_update_big_endian ||
-          expr.id()==ID_byte_update_little_endian)
-  {
-    forall_operands(it, expr)
-      if(!constant_propagation(*it))
-        return false;
-
-    return true;
-  }
-
-  return false;
-}
-
-/// this function determines which reference-typed expressions are constant
-bool goto_symex_statet::constant_propagation_reference(const exprt &expr) const
-{
-  if(expr.id()==ID_symbol)
-    return true;
-  else if(expr.id()==ID_index)
-  {
-    const index_exprt &index_expr=to_index_expr(expr);
-
-    return constant_propagation_reference(index_expr.array()) &&
-           constant_propagation(index_expr.index());
-  }
-  else if(expr.id()==ID_member)
-  {
-    if(expr.operands().size()!=1)
-      throw "member expects one operand";
-
-    return constant_propagation_reference(expr.op0());
-  }
-  else if(expr.id()==ID_string_constant)
-    return true;
-
-  return false;
-}
-
 /// write to a variable
 static bool check_renaming(const exprt &expr);
 
@@ -209,18 +91,12 @@ static bool check_renaming(const typet &type)
           type.id()==ID_union ||
           type.id()==ID_class)
   {
-    const struct_union_typet &s_u_type=to_struct_union_type(type);
-    const struct_union_typet::componentst &components=s_u_type.components();
-
-    for(struct_union_typet::componentst::const_iterator
-        it=components.begin();
-        it!=components.end();
-        ++it)
-      if(check_renaming(it->type()))
+    for(const auto &c : to_struct_union_type(type).components())
+      if(check_renaming(c.type()))
         return true;
   }
   else if(type.has_subtype())
-    return check_renaming(type.subtype());
+    return check_renaming(to_type_with_subtype(type).subtype());
 
   return false;
 }
@@ -306,6 +182,41 @@ static void assert_l2_renaming(const exprt &expr)
   #endif
 }
 
+class goto_symex_is_constantt : public is_constantt
+{
+protected:
+  bool is_constant(const exprt &expr) const override
+  {
+    if(expr.id() == ID_mult)
+    {
+      // propagate stuff with sizeof in it
+      forall_operands(it, expr)
+      {
+        if(it->find(ID_C_c_sizeof_type).is_not_nil())
+          return true;
+        else if(!is_constant(*it))
+          return false;
+      }
+
+      return true;
+    }
+    else if(expr.id() == ID_with)
+    {
+      // this is bad
+      /*
+      forall_operands(it, expr)
+      if(!is_constant(expr.op0()))
+      return false;
+
+      return true;
+      */
+      return false;
+    }
+
+    return is_constantt::is_constant(expr);
+  }
+};
+
 void goto_symex_statet::assignment(
   ssa_exprt &lhs, // L0/L1
   const exprt &rhs,  // L2
@@ -345,11 +256,12 @@ void goto_symex_statet::assignment(
 
   // see #305 on GitHub for a simple example and possible discussion
   if(is_shared && lhs.type().id() == ID_pointer && !allow_pointer_unsoundness)
-    throw "pointer handling for concurrency is unsound";
+    throw unsupported_operation_exceptiont(
+      "pointer handling for concurrency is unsound");
 
   // for value propagation -- the RHS is L2
 
-  if(!is_shared && record_value && constant_propagation(rhs))
+  if(!is_shared && record_value && goto_symex_is_constantt()(rhs))
     propagation.values[l1_identifier]=rhs;
   else
     propagation.remove(l1_identifier);
@@ -495,13 +407,9 @@ void goto_symex_statet::rename(
   }
   else if(expr.id()==ID_address_of)
   {
-    DATA_INVARIANT(
-      expr.operands().size() == 1, "address_of should have a single operand");
-    rename_address(expr.op0(), ns, level);
-    DATA_INVARIANT(
-      expr.type().id() == ID_pointer,
-      "type of address_of should be ID_pointer");
-    expr.type().subtype()=expr.op0().type();
+    auto &address_of_expr = to_address_of_expr(expr);
+    rename_address(address_of_expr.object(), ns, level);
+    to_pointer_type(expr.type()).subtype() = address_of_expr.object().type();
   }
   else
   {
@@ -737,7 +645,7 @@ void goto_symex_statet::rename_address(
 
       rename_address(index_expr.array(), ns, level);
       PRECONDITION(index_expr.array().type().id() == ID_array);
-      expr.type()=index_expr.array().type().subtype();
+      expr.type() = to_array_type(index_expr.array().type()).subtype();
 
       // the index is not an address
       rename(index_expr.index(), ns, level);
@@ -760,7 +668,10 @@ void goto_symex_statet::rename_address(
 
       // type might not have been renamed in case of nesting of
       // structs and pointers/arrays
-      if(member_expr.struct_op().type().id()!=ID_symbol)
+      if(
+        member_expr.struct_op().type().id() != ID_symbol_type &&
+        member_expr.struct_op().type().id() != ID_struct_tag &&
+        member_expr.struct_op().type().id() != ID_union_tag)
       {
         const struct_union_typet &su_type=
           to_struct_union_type(member_expr.struct_op().type());
@@ -819,8 +730,9 @@ void goto_symex_statet::rename(
 
   if(type.id()==ID_array)
   {
-    rename(type.subtype(), irep_idt(), ns, level);
-    rename(to_array_type(type).size(), ns, level);
+    auto &array_type = to_array_type(type);
+    rename(array_type.subtype(), irep_idt(), ns, level);
+    rename(array_type.size(), ns, level);
   }
   else if(type.id()==ID_struct ||
           type.id()==ID_union ||
@@ -841,12 +753,23 @@ void goto_symex_statet::rename(
   }
   else if(type.id()==ID_pointer)
   {
-    rename(type.subtype(), irep_idt(), ns, level);
+    rename(to_pointer_type(type).subtype(), irep_idt(), ns, level);
   }
-  else if(type.id()==ID_symbol)
+  else if(type.id() == ID_symbol_type)
   {
-    const symbolt &symbol=
-      ns.lookup(to_symbol_type(type).get_identifier());
+    const symbolt &symbol = ns.lookup(to_symbol_type(type));
+    type = symbol.type;
+    rename(type, l1_identifier, ns, level);
+  }
+  else if(type.id() == ID_union_tag)
+  {
+    const symbolt &symbol = ns.lookup(to_union_tag_type(type));
+    type = symbol.type;
+    rename(type, l1_identifier, ns, level);
+  }
+  else if(type.id() == ID_struct_tag)
+  {
+    const symbolt &symbol = ns.lookup(to_struct_tag_type(type));
     type=symbol.type;
     rename(type, l1_identifier, ns, level);
   }
@@ -874,8 +797,9 @@ void goto_symex_statet::get_original_name(typet &type) const
 
   if(type.id()==ID_array)
   {
-    get_original_name(type.subtype());
-    get_original_name(to_array_type(type).size());
+    auto &array_type = to_array_type(type);
+    get_original_name(array_type.subtype());
+    get_original_name(array_type.size());
   }
   else if(type.id()==ID_struct ||
           type.id()==ID_union ||
@@ -892,7 +816,7 @@ void goto_symex_statet::get_original_name(typet &type) const
   }
   else if(type.id()==ID_pointer)
   {
-    get_original_name(type.subtype());
+    get_original_name(to_pointer_type(type).subtype());
   }
 }
 

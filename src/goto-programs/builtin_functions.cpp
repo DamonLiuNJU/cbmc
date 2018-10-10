@@ -17,6 +17,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/c_types.h>
 #include <util/cprover_prefix.h>
 #include <util/expr_initializer.h>
+#include <util/expr_util.h>
 #include <util/pointer_offset_size.h>
 #include <util/rational.h>
 #include <util/rational_tools.h>
@@ -50,8 +51,8 @@ void goto_convertt::do_prob_uniform(
     throw 0;
   }
 
-  side_effect_exprt rhs("prob_uniform", lhs.type());
-  rhs.add_source_location()=function.source_location();
+  auto rhs =
+    side_effect_exprt("prob_uniform", lhs.type(), function.source_location());
 
   if(lhs.type().id()!=ID_unsignedbv &&
      lhs.type().id()!=ID_signedbv)
@@ -128,8 +129,7 @@ void goto_convertt::do_prob_coin(
     throw 0;
   }
 
-  side_effect_exprt rhs("prob_coin", lhs.type());
-  rhs.add_source_location()=function.source_location();
+  side_effect_exprt rhs("prob_coin", lhs.type(), function.source_location());
 
   if(lhs.type()!=bool_typet())
   {
@@ -192,9 +192,9 @@ void goto_convertt::do_printf(
   if(f_id==CPROVER_PREFIX "printf" ||
      f_id=="printf")
   {
-    typet return_type=
-      static_cast<const typet &>(function.type().find(ID_return_type));
-    side_effect_exprt printf_code(ID_printf, return_type);
+    const typet &return_type = to_code_type(function.type()).return_type();
+    side_effect_exprt printf_code(
+      ID_printf, return_type, function.source_location());
 
     printf_code.operands()=arguments;
     printf_code.add_source_location()=function.source_location();
@@ -284,7 +284,8 @@ void goto_convertt::do_scanf(
               #else
               const index_exprt lhs(
                 dereference_exprt(ptr, type), from_integer(0, index_type()));
-              const side_effect_expr_nondett rhs(type.subtype());
+              const side_effect_expr_nondett rhs(
+                type.subtype(), function.source_location());
               code_assignt assign(lhs, rhs);
               assign.add_source_location()=function.source_location();
               copy(assign, ASSIGN, dest);
@@ -294,7 +295,8 @@ void goto_convertt::do_scanf(
             {
               // make it nondet for now
               const dereference_exprt lhs(ptr, type);
-              const side_effect_expr_nondett rhs(type);
+              const side_effect_expr_nondett rhs(
+                type, function.source_location());
               code_assignt assign(lhs, rhs);
               assign.add_source_location()=function.source_location();
               copy(assign, ASSIGN, dest);
@@ -306,10 +308,7 @@ void goto_convertt::do_scanf(
     else
     {
       // we'll just do nothing
-      code_function_callt function_call;
-      function_call.lhs()=lhs;
-      function_call.function()=function;
-      function_call.arguments()=arguments;
+      code_function_callt function_call(lhs, function, arguments);
       function_call.add_source_location()=function.source_location();
 
       copy(function_call, FUNCTION_CALL, dest);
@@ -320,13 +319,11 @@ void goto_convertt::do_scanf(
 }
 
 void goto_convertt::do_input(
-  const exprt &lhs,
   const exprt &function,
   const exprt::operandst &arguments,
   goto_programt &dest)
 {
-  codet input_code;
-  input_code.set_statement(ID_input);
+  codet input_code(ID_input);
   input_code.operands()=arguments;
   input_code.add_source_location()=function.source_location();
 
@@ -341,13 +338,11 @@ void goto_convertt::do_input(
 }
 
 void goto_convertt::do_output(
-  const exprt &lhs,
   const exprt &function,
   const exprt::operandst &arguments,
   goto_programt &dest)
 {
-  codet output_code;
-  output_code.set_statement(ID_output);
+  codet output_code(ID_output);
   output_code.operands()=arguments;
   output_code.add_source_location()=function.source_location();
 
@@ -463,8 +458,7 @@ void goto_convertt::do_cpp_new(
 
     tmp_symbol_expr=tmp_symbol.symbol_expr();
 
-    code_function_callt new_call;
-    new_call.function()=new_symbol;
+    code_function_callt new_call(new_symbol);
     if(new_array)
       new_call.arguments().push_back(count);
     new_call.arguments().push_back(object_size);
@@ -494,8 +488,7 @@ void goto_convertt::do_cpp_new(
 
     tmp_symbol_expr=tmp_symbol.symbol_expr();
 
-    code_function_callt new_call;
-    new_call.function()=new_symbol;
+    code_function_callt new_call(new_symbol);
     if(new_array)
       new_call.arguments().push_back(count);
     new_call.arguments().push_back(object_size);
@@ -607,8 +600,7 @@ void goto_convertt::do_array_op(
     throw 0;
   }
 
-  codet array_op_statement;
-  array_op_statement.set_statement(id);
+  codet array_op_statement(id);
   array_op_statement.operands()=arguments;
   array_op_statement.add_source_location()=function.source_location();
 
@@ -618,20 +610,6 @@ void goto_convertt::do_array_op(
     array_op_statement.copy_to_operands(lhs);
 
   copy(array_op_statement, OTHER, dest);
-}
-
-bool is_lvalue(const exprt &expr)
-{
-  if(expr.id()==ID_index)
-    return is_lvalue(to_index_expr(expr).op0());
-  else if(expr.id()==ID_member)
-    return is_lvalue(to_member_expr(expr).op0());
-  else if(expr.id()==ID_dereference)
-    return true;
-  else if(expr.id()==ID_symbol)
-    return true;
-  else
-    return false;
 }
 
 exprt make_va_list(const exprt &expr)
@@ -656,7 +634,7 @@ void goto_convertt::do_function_call_symbol(
   const exprt::operandst &arguments,
   goto_programt &dest)
 {
-  if(function.get_bool("#invalid_object"))
+  if(function.get_bool(ID_C_invalid_object))
     return; // ignore
 
   // lookup symbol
@@ -846,21 +824,37 @@ void goto_convertt::do_function_call_symbol(
   else if(identifier==CPROVER_PREFIX "input" ||
           identifier=="__CPROVER::input")
   {
-    do_input(lhs, function, arguments, dest);
+    if(lhs.is_not_nil())
+    {
+      error().source_location=function.find_source_location();
+      error() << identifier << " expected not to have LHS" << eom;
+      throw 0;
+    }
+
+    do_input(function, arguments, dest);
   }
   else if(identifier==CPROVER_PREFIX "output" ||
           identifier=="__CPROVER::output")
   {
-    do_output(lhs, function, arguments, dest);
+    if(lhs.is_not_nil())
+    {
+      error().source_location=function.find_source_location();
+      error() << identifier << " expected not to have LHS" << eom;
+      throw 0;
+    }
+
+    do_output(function, arguments, dest);
   }
   else if(identifier==CPROVER_PREFIX "atomic_begin" ||
           identifier=="__CPROVER::atomic_begin" ||
+          identifier=="java::org.cprover.CProver.atomicBegin:()V" ||
           identifier=="__VERIFIER_atomic_begin")
   {
     do_atomic_begin(lhs, function, arguments, dest);
   }
   else if(identifier==CPROVER_PREFIX "atomic_end" ||
           identifier=="__CPROVER::atomic_end" ||
+          identifier=="java::org.cprover.CProver.atomicEnd:()V" ||
           identifier=="__VERIFIER_atomic_end")
   {
     do_atomic_end(lhs, function, arguments, dest);
@@ -886,15 +880,13 @@ void goto_convertt::do_function_call_symbol(
     // can only be 0 or 1.
     if(lhs.type().id()==ID_c_bool)
     {
-      rhs=side_effect_expr_nondett(bool_typet());
-      rhs.add_source_location()=function.source_location();
+      rhs = side_effect_expr_nondett(bool_typet(), function.source_location());
       rhs.set(ID_C_identifier, identifier);
       rhs=typecast_exprt(rhs, lhs.type());
     }
     else
     {
-      rhs=side_effect_expr_nondett(lhs.type());
-      rhs.add_source_location()=function.source_location();
+      rhs = side_effect_expr_nondett(lhs.type(), function.source_location());
       rhs.set(ID_C_identifier, identifier);
     }
 
@@ -908,11 +900,7 @@ void goto_convertt::do_function_call_symbol(
     if(lhs.is_nil())
       return;
 
-    function_application_exprt rhs;
-    rhs.type()=lhs.type();
-    rhs.add_source_location()=function.source_location();
-    rhs.function()=function;
-    rhs.arguments()=arguments;
+    const function_application_exprt rhs(function, arguments, lhs.type());
 
     code_assignt assignment(lhs, rhs);
     assignment.add_source_location()=function.source_location();
@@ -1106,7 +1094,10 @@ void goto_convertt::do_function_call_symbol(
     exprt list_arg=make_va_list(arguments[0]);
 
     {
-      side_effect_exprt rhs(ID_gcc_builtin_va_arg_next, list_arg.type());
+      side_effect_exprt rhs(
+        ID_gcc_builtin_va_arg_next,
+        list_arg.type(),
+        function.source_location());
       rhs.copy_to_operands(list_arg);
       rhs.set(ID_C_va_arg_type, to_code_type(function.type()).return_type());
       goto_programt::targett t1=dest.add_instruction(ASSIGN);
@@ -1551,10 +1542,7 @@ void goto_convertt::do_function_call_symbol(
     new_function.set_identifier(name);
     new_function.type()=f_type;
 
-    code_function_callt function_call;
-    function_call.lhs()=lhs;
-    function_call.function()=new_function;
-    function_call.arguments()=new_arguments;
+    code_function_callt function_call(lhs, new_function, new_arguments);
     function_call.add_source_location()=function.source_location();
 
     if(!symbol_table.has_symbol(name))
@@ -1574,10 +1562,7 @@ void goto_convertt::do_function_call_symbol(
     do_function_call_symbol(*symbol);
 
     // insert function call
-    code_function_callt function_call;
-    function_call.lhs()=lhs;
-    function_call.function()=function;
-    function_call.arguments()=arguments;
+    code_function_callt function_call(lhs, function, arguments);
     function_call.add_source_location()=function.source_location();
 
     copy(function_call, FUNCTION_CALL, dest);

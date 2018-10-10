@@ -32,8 +32,13 @@ Date: April 2016
 
 class symbol_tablet;
 class json_stream_arrayt;
-class message_handlert;
 
+/// Non-graph-based representation of the class hierarchy.
+/// \deprecated `class_hierarchy_grapht` is a more advanced graph-based
+///   representation of the class hierarchy and its use is preferred over
+///   `class_hierarchy_classt`.
+/// \todo Implement missing functions from `class_hierarchyt` in
+///   `class_hierarchy_grapht` so that `class_hierarchyt` can be fully replaced.
 class class_hierarchyt
 {
 public:
@@ -50,6 +55,10 @@ public:
   class_mapt class_map;
 
   void operator()(const symbol_tablet &);
+
+  class_hierarchyt() = default;
+  class_hierarchyt(const class_hierarchyt &) = delete;
+  class_hierarchyt &operator=(const class_hierarchyt &) = delete;
 
   // transitively gets all children
   idst get_children_trans(const irep_idt &id) const
@@ -89,6 +98,8 @@ public:
 class class_hierarchy_grapht : public grapht<class_hierarchy_graph_nodet>
 {
 public:
+  typedef std::vector<irep_idt> idst;
+
   /// Maps class identifiers onto node indices
   typedef std::unordered_map<irep_idt, node_indext> nodes_by_namet;
 
@@ -101,9 +112,19 @@ public:
     return nodes_by_name;
   }
 
+  idst get_direct_children(const irep_idt &c) const;
+
+  idst get_children_trans(const irep_idt &c) const;
+
+  idst get_parents_trans(const irep_idt &c) const;
+
 private:
   /// Maps class identifiers onto node indices
   nodes_by_namet nodes_by_name;
+
+  idst ids_from_indices(const std::vector<node_indext> &nodes) const;
+
+  idst get_other_reachable_ids(const irep_idt &c, bool forwards) const;
 };
 
 /// Output the class hierarchy
@@ -113,8 +134,7 @@ private:
 /// \param children_only: print the children only and do not print the parents
 void show_class_hierarchy(
   const class_hierarchyt &hierarchy,
-  message_handlert &message_handler,
-  ui_message_handlert::uit ui,
+  ui_message_handlert &message_handler,
   bool children_only = false);
 
 #endif // CPROVER_GOTO_PROGRAMS_CLASS_HIERARCHY_H

@@ -8,40 +8,17 @@ Author:
 
 #include <iostream>
 
+#include <testing-utils/call_graph_test_utils.h>
 #include <testing-utils/catch.hpp>
 
 #include <analyses/call_graph.h>
 #include <analyses/call_graph_helpers.h>
 
 #include <util/symbol_table.h>
-#include <util/std_code.h>
 
 #include <goto-programs/goto_convert_functions.h>
 
-static symbolt create_void_function_symbol(
-  const irep_idt &name,
-  const codet &code)
-{
-  const code_typet void_function_type({}, empty_typet());
-  symbolt function;
-  function.name=name;
-  function.type=void_function_type;
-  function.mode=ID_java;
-  function.value=code;
-  return function;
-}
 
-static bool multimap_key_matches(
-  const std::multimap<irep_idt, irep_idt> &map,
-  const irep_idt &key,
-  const std::set<irep_idt> &values)
-{
-  auto matching_values=map.equal_range(key);
-  std::set<irep_idt> matching_set;
-  for(auto it=matching_values.first; it!=matching_values.second; ++it)
-    matching_set.insert(it->second);
-  return matching_set==values;
-}
 
 SCENARIO("call_graph",
   "[core][util][call_graph]")
@@ -71,12 +48,9 @@ SCENARIO("call_graph",
 
     {
       code_blockt calls;
-      code_function_callt call1;
-      call1.function()=symbol_exprt("A", void_function_type);
-      code_function_callt call2;
-      call2.function()=symbol_exprt("B", void_function_type);
-      code_function_callt call3;
-      call3.function()=symbol_exprt("B", void_function_type);
+      code_function_callt call1(symbol_exprt("A", void_function_type));
+      code_function_callt call2(symbol_exprt("B", void_function_type));
+      code_function_callt call3(symbol_exprt("B", void_function_type));
       calls.move_to_operands(call1);
       calls.move_to_operands(call2);
       calls.move_to_operands(call3);
@@ -87,10 +61,8 @@ SCENARIO("call_graph",
 
     {
       code_blockt calls;
-      code_function_callt call1;
-      call1.function()=symbol_exprt("C", void_function_type);
-      code_function_callt call2;
-      call2.function()=symbol_exprt("D", void_function_type);
+      code_function_callt call1(symbol_exprt("C", void_function_type));
+      code_function_callt call2(symbol_exprt("D", void_function_type));
       calls.move_to_operands(call1);
       calls.move_to_operands(call2);
 
@@ -221,6 +193,48 @@ SCENARIO("call_graph",
         REQUIRE(exported.has_edge(nodes_by_name["A"], nodes_by_name["B"]));
         REQUIRE(exported.has_edge(nodes_by_name["B"], nodes_by_name["C"]));
         REQUIRE(exported.has_edge(nodes_by_name["B"], nodes_by_name["D"]));
+      }
+
+      THEN("We expect {A,B} to be reachable from {A} in 1 step")
+      {
+        irep_idt function_name = "A";
+        std::size_t depth = 1;
+        std::set<irep_idt> reachable = get_functions_reachable_within_n_steps(
+          exported, function_name, depth);
+        REQUIRE(reachable.size() == 2);
+        REQUIRE(reachable.count("A"));
+        REQUIRE(reachable.count("B"));
+      }
+      THEN("We expect {A,B,C,D} to be reachable from {A} in 2 and 3 steps")
+      {
+        irep_idt function_name = "A";
+        std::size_t depth = 2;
+        std::set<irep_idt> reachable = get_functions_reachable_within_n_steps(
+          exported, function_name, depth);
+        REQUIRE(reachable.size() == 4);
+        REQUIRE(reachable.count("A"));
+        REQUIRE(reachable.count("B"));
+        REQUIRE(reachable.count("C"));
+        REQUIRE(reachable.count("D"));
+
+        depth = 3;
+        reachable = get_functions_reachable_within_n_steps(
+          exported, function_name, depth);
+        REQUIRE(reachable.size() == 4);
+        REQUIRE(reachable.count("A"));
+        REQUIRE(reachable.count("B"));
+        REQUIRE(reachable.count("C"));
+        REQUIRE(reachable.count("D"));
+      }
+
+      THEN("We expect only {A} to be reachable from {A} in 0 steps")
+      {
+        irep_idt function_name = "A";
+        std::size_t depth = 0;
+        std::set<irep_idt> reachable = get_functions_reachable_within_n_steps(
+          exported, function_name, depth);
+        REQUIRE(reachable.size() == 1);
+        REQUIRE(reachable.count("A"));
       }
 
       THEN("We expect A to have successors {A, B}")

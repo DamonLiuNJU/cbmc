@@ -9,30 +9,23 @@ Author: Daniel Kroening, kroening@kroening.com
 #include "boolbv.h"
 
 #include <iostream>
-#include <cassert>
 
 #include <util/arith_tools.h>
 #include <util/byte_operators.h>
+#include <util/invariant.h>
 
 #include "bv_endianness_map.h"
 
 bvt boolbvt::convert_byte_update(const byte_update_exprt &expr)
 {
-  if(expr.operands().size()!=3)
-    throw "byte_update takes three operands";
-
-  const exprt &op=expr.op0();
+  const exprt &op = expr.op();
   const exprt &offset_expr=expr.offset();
   const exprt &value=expr.value();
 
-  bool little_endian;
-
-  if(expr.id()==ID_byte_update_little_endian)
-    little_endian=true;
-  else if(expr.id()==ID_byte_update_big_endian)
-    little_endian=false;
-  else
-    UNREACHABLE;
+  PRECONDITION(
+    expr.id() == ID_byte_update_little_endian ||
+    expr.id() == ID_byte_update_big_endian);
+  const bool little_endian = expr.id() == ID_byte_update_little_endian;
 
   bvt bv=convert_bv(op);
 
@@ -74,8 +67,11 @@ bvt boolbvt::convert_byte_update(const byte_update_exprt &expr)
           size_t index_op=map_op.map_bit(offset_i+i);
           size_t index_value=map_value.map_bit(i);
 
-          assert(index_op<bv.size());
-          assert(index_value<value_bv.size());
+          INVARIANT(
+            index_op < bv.size(), "bit vector index shall be within bounds");
+          INVARIANT(
+            index_value < value_bv.size(),
+            "bit vector index shall be within bounds");
 
           bv[index_op]=value_bv[index_value];
         }

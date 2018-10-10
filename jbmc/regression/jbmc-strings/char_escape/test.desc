@@ -1,6 +1,9 @@
 CORE
 Test.class
---refine-strings --function Test.test --cover location --trace --json-ui
-^EXIT=0$
+--function Test.test --trace --cp `../../../../scripts/format_classpath.sh . ../../../lib/java-models-library/target/core-models.jar` --json-ui
+^EXIT=10$
 ^SIGNAL=0$
-20 of 23 covered \(87.0%\)|30 of 44 covered \(68.2%\)
+"reason": "assertion at file Test.java line 14
+"reason": "assertion at file Test.java line 18
+--
+"reason": "assertion at file Test.java line 21

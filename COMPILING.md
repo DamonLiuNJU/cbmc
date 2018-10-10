@@ -19,111 +19,100 @@ We assume that you have a Debian/Ubuntu or Red Hat-like distribution.
 
 1. You need a C/C++ compiler, Flex and Bison, and GNU make.
    The GNU Make needs to be version 3.81 or higher.
-   On Debian-like distributions, do
+   On Debian-like distributions, do as root:
    ```
-   apt-get install g++ gcc flex bison make git libwww-perl patch openjdk-7-jdk
+   apt-get install g++ gcc flex bison make git libwww-perl patch
    ```
-   On Red Hat/Fedora or derivates, do
+   On Red Hat/Fedora or derivates, do as root:
    ```
-   yum install gcc gcc-c++ flex bison perl-libwww-perl patch devtoolset-6 java-1.7.0-openjdk-devel
+   dnf install gcc gcc-c++ flex bison perl-libwww-perl patch
    ```
    Note that you need g++ version 5.0 or newer.
 
-   To compile JBMC, you additionally need the JDK and the java-models-library.
+   On Amazon Linux and similar distributions, do as root:
+   ```
+   yum install gcc72-c++ flex bison perl-libwww-perl patch
+   ```
 
-   For the JDK, on Debian-like distributions, do
+   To compile JBMC, you additionally need the JDK and Maven 3.
+   On Debian-like distributions, do as root:
    ```
-   apt-get install openjdk-7-jdk
+   apt-get install openjdk-8-jdk maven
    ```
-   On Red Hat/Fedora or derivates, do
+   On Red Hat/Fedora or derivates, do as root:
    ```
-   yum install java-1.7.0-openjdk-devel
-   ```
-   For the models library, do
-   ```
-   make -C jbmc/src java-models-library-download
+   dnf install java-1.8.0-openjdk-devel maven
    ```
 
 2. As a user, get the CBMC source via
    ```
    git clone https://github.com/diffblue/cbmc cbmc-git
-   ```
-3. On Debian or Ubuntu, do
-   ```
-   cd cbmc-git/src
-   make minisat2-download
-   make
-   ```
-   On Redhat/Fedora etc., do
-   ```
-   cd cbmc-git/src
-   make minisat2-download
-   scl enable devtoolset-6 bash
-   make
+   cd cbmc-git
    ```
 
-4. Linking against an IPASIR SAT solver
+3. To compile, do
+   ```
+   make -C src minisat2-download
+   make -C src
+   ```
+   See doc/architectural/compilation-and-development.md for instructions on how
+   to use a SAT solver other than MiniSat 2.
 
-   Get an IPASIR package and build picosat by default
+4. To compile JBMC, do
    ```
-   make -C src ipasir-build
-   ```
-
-   Build CBMC with IPASIR and link against the ipasir solver library
-   Note: the LIBSOLVER variable could be pointed towards other solvers
-   ```
-   make -C src IPASIR=../../ipasir LIBSOLVER=$(pwd)/ipasir/libipasir.a
+   make -C jbmc/src setup-submodules
+   make -C jbmc/src
    ```
 
 # COMPILATION ON SOLARIS 11
 
+We assume Solaris 11.4 or newer.  To build JBMC, you'll need to install
+Maven 3 manually.
+
 1. As root, get the necessary development tools:
    ```
-   pkgadd -d http://get.opencsw.org/now
-   /opt/csw/bin/pkgutil -U
-   /opt/csw/bin/pkgutil -i gcc5g++ bison flex git
+   pkg install gcc-c++-7 bison flex
    ```
 2. As a user, get the CBMC source via
    ```
-   export PATH=/opt/csw/bin:$PATH
    git clone https://github.com/diffblue/cbmc cbmc-git
+   cd cbmc-git
    ```
-3. Get MiniSat2 by entering
+3. To compile CBMC, type
    ```
-   cd cbmc-git/src
-   gmake minisat2-download DOWNLOADER=wget TAR=gtar
+   gmake -C src minisat2-download DOWNLOADER=wget TAR=gtar
+   gmake -C src
    ```
-4. To compile, type
+4. To compile JBMC, type
    ```
-   gmake
-   ```
-   That should do it. To run, you will need
-   ```
-   export LD_LIBRARY_PATH=/usr/gcc/5.0/lib
+   gmake -C jbmc/src setup-submodules
+   gmake -C jbmc/src
    ```
 
 # COMPILATION ON FREEBSD 11
 
 1. As root, get the necessary tools:
    ```
-   pkg install bash gmake git www/p5-libwww patch flex bison openjdk
+   pkg install bash gmake git www/p5-libwww patch flex bison
    ```
    To compile JBMC, additionally install
    ```
-   pkg install openjdk
+   pkg install openjdk8 wget maven3
    ```
- 2. As a user, get the CBMC source via
+2. As a user, get the CBMC source via
    ```
    git clone https://github.com/diffblue/cbmc cbmc-git
+   cd cbmc-git
    ```
-3. Do
+3. To compile CBMC, do
    ```
-   cd cbmc-git/src
+   gmake -C src minisat2-download
+   gmake -C src
    ```
-4. Do
+4. To compile JBMC, do
    ```
-   gmake minisat2-download
-   gmake
+   gmake -C jbmc/src setup-submodules
+   gmake -C jbmc/src
    ```
 
 # COMPILATION ON MACOS X
@@ -139,12 +128,18 @@ Follow these instructions:
 2. Then get the CBMC source via
    ```
    git clone https://github.com/diffblue/cbmc cbmc-git
+   cd cbmc-git
    ```
-3. Then type
+3. To compile CBMC, do
    ```
-   cd cbmc-git/src
-   make minisat2-download
-   make
+   make -C src minisat2-download
+   make -C src
+   ```
+4. To compile JBMC, you additionally need Maven 3, which has to be installed
+   manually. Then do
+   ```
+   make -C jbmc/src setup-submodules
+   make -C jbmc/src
    ```
 
 # COMPILATION ON WINDOWS
@@ -161,6 +156,7 @@ Follow these instructions:
 2. Get the CBMC source via
    ```
    git clone https://github.com/diffblue/cbmc cbmc-git
+   cd cbmc-git
    ```
 3. Depending on your choice of compiler:
    1. To compile with Visual Studio, change the second line of `src/config.inc`
@@ -169,20 +165,25 @@ Follow these instructions:
       BUILD_ENV = MSVC
       ```
       Open the Developer Command Prompt for Visual Studio, then start the
-	    Cygwin shell with
-	    ```
-	    bash.exe -login
-	    ```
+      Cygwin shell with
+      ```
+      bash.exe -login
+      ```
    2. To compile with MinGW, use Cygwin setup to install a mingw g++ compiler
       package, i.e. one of `mingw{32,64}-{x86_64,i686}-gcc-g++`. You may also
       have to adjust the section in `src/common` that defines `CC` and `CXX`
       for BUILD_ENV = Cygwin.
       Then start the Cygwin shell.
-4. In the Cygwin shell, type
+4. To compile CMBC, open the Cygwin shell and type
    ```
-   cd cbmc-git/src
-   make DOWNLOADER=wget minisat2-download
-   make
+   make -C src DOWNLOADER=wget minisat2-download
+   make -C src
+   ```
+5. To compile JBMC, you additionally need the JDK and Maven 3, which have
+   to be installed manually. Then open the Cygwin shell and type
+   ```
+   make -C jbmc/src setup-submodules
+   make -C jbmc/src
    ```
 
 (Optional) A Visual Studio project file can be generated with the script
@@ -191,9 +192,9 @@ helpful for GUI-based tasks, e.g., the class viewer, debugging, etc., and can
 be used for building with MSBuild.  Note that you still need to run flex/bison
 using "make generated_files" before opening the project.
 
-# WORKING WITH CMAKE (EXPERIMENTAL)
+# WORKING WITH CMAKE
 
-There is an experimental build based on CMake instead of hand-written
+There is also a build based on CMake instead of hand-written
 makefiles. It should work on a wider variety of systems than the standard
 makefile build, and can integrate better with IDEs and static-analysis tools.
 On Windows, the CMake build does not depend on Cygwin or MinGW, and doesn't
@@ -209,7 +210,7 @@ require manual modification of build files.
      ```
    - On Red Hat/Fedora or derivates, do
      ```
-     yum install cmake
+     dnf install cmake
      ```
    - On macOS, do
      ```
@@ -234,7 +235,11 @@ require manual modification of build files.
 2. Navigate to the *top level* folder of the project. This is different from
    the Makefile build, which requires you to navigate to the `src` directory
    first.
-3. Generate build files with CMake:
+3. Update git submodules:
+   ```
+   git submodule update --init
+   ```
+4. Generate build files with CMake:
    ```
    cmake -H. -Bbuild
    ```
@@ -258,7 +263,7 @@ require manual modification of build files.
    Finally, to enable building universal binaries on macOS, you can pass the
    flag `-DCMAKE_OSX_ARCHITECTURES=i386;x86_64`. If you don't supply this flag,
    the build will just be for the architecture of your machine.
-4. Run the build:
+5. Run the build:
    ```
    cmake --build build
    ```
@@ -277,96 +282,3 @@ To work with Eclipse, do the following:
 5. Click "Finish"
 6. Select Project -> Build All
 
-# CODE COVERAGE
-
-Code coverage metrics are provided using gcov and lcov. Ensure that you have
-installed lcov from http://ltp.sourceforge.net/coverage/lcov.php note for
-ubuntu lcov is available in the standard apt-get repos.
-
-To get coverage metrics run the following script from the regression directory:
-```
-get_coverage.sh
-```
-This will:
- 1) Rebuild CBMC with gcov enabled
- 2) Run all the regression tests
- 3) Collate the coverage metrics
- 4) Provide an HTML report of the current coverage
-
-# USING CLANG-FORMAT
-
-CBMC uses clang-format to ensure that the formatting of new patches is readable
-and consistent. There are two main ways of running clang-format: remotely, and
-locally.
-
-## RUNNING CLANG-FORMAT REMOTELY
-
-When patches are submitted to CBMC, they are automatically run through
-continuous integration (CI). One of the CI checks will run clang-format over
-the diff that your pull request introduces. If clang-format finds formatting
-issues at this point, the build will be failed, and a patch will be produced
-in the CI output that you can apply to your code so that it conforms to the
-style guidelines.
-
-To apply the patch, copy and paste it into a local file (`patch.txt`) and then
-run:
-```
-patch -p1 -i patch.txt
-```
-Now, you can commit and push the formatting fixes.
-
-## RUNNING CLANG-FORMAT LOCALLY
-
-### INSTALLATION
-
-To avoid waiting until you've made a PR to find formatting issues, you can
-install clang-format locally and run it against your code as you are working.
-
-Different versions of clang-format have slightly different behaviors. CBMC uses
-clang-format-3.8 as it is available the repositories for Ubuntu 16.04 and
-Homebrew.
-To install on a Unix-like system, try installing using the system package
-manager:
-```
-apt-get install clang-format-3.8  # Run this on Ubuntu, Debian etc.
-brew install clang-format@3.8     # Run this on a Mac with Homebrew installed
-```
-
-If your platform doesn't have a package for clang-format, you can download a
-pre-built binary, or compile clang-format yourself using the appropriate files
-from the [LLVM Downloads page](http://releases.llvm.org/download.html).
-
-An installer for Windows (along with a Visual Studio plugin) can be found at
-the [LLVM Snapshot Builds page](http://llvm.org/builds/).
-
-### FORMATTING A RANGE OF COMMITS
-
-Clang-format is distributed with a driver script called git-clang-format-3.8.
-This script can be used to format git diffs (rather than entire files).
-
-After committing some code, it is recommended to run:
-```
-git-clang-format-3.8 upstream/develop
-```
-*Important:* If your branch is based on a branch other than `upstream/develop`,
-use the name or checksum of that branch instead. It is strongly recommended to
-rebase your work onto the tip of the branch it's based on before running
-`git-clang-format` in this way.
-
-### RETROACTIVELY FORMATTING INDIVIDUAL COMMITS
-
-If your works spans several commits and you'd like to keep the formatting
-correct in each individual commit, you can automatically rewrite the commits
-with correct formatting.
-
-The following command will stop at each commit in the range and run
-clang-format on the diff at that point.  This rewrites git history, so it's
-*unsafe*, and you should back up your branch before running this command:
-```
-git filter-branch --tree-filter 'git-clang-format-3.8 upstream/develop' \
-  -- upstream/develop..HEAD
-```
-*Important*: `upstream/develop` should be changed in *both* places in the
-command above if your work is based on a different branch. It is strongly
-recommended to rebase your work onto the tip of the branch it's based on before
-running `git-clang-format` in this way.

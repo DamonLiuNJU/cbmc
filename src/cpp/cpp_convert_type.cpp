@@ -32,7 +32,7 @@ public:
            double_cnt, float_cnt, complex_cnt, cpp_bool_cnt, proper_bool_cnt,
            extern_cnt, noreturn_cnt, wchar_t_cnt, char16_t_cnt, char32_t_cnt,
            int8_cnt, int16_cnt, int32_cnt, int64_cnt, ptr32_cnt, ptr64_cnt,
-           float128_cnt, int128_cnt;
+           float80_cnt, float128_cnt, int128_cnt;
 
   void read(const typet &type);
   void write(typet &type);
@@ -55,7 +55,7 @@ void cpp_convert_typet::read(const typet &type)
   double_cnt=float_cnt=complex_cnt=cpp_bool_cnt=proper_bool_cnt=
   extern_cnt=noreturn_cnt=wchar_t_cnt=char16_t_cnt=char32_t_cnt=
   int8_cnt=int16_cnt=int32_cnt=int64_cnt=
-  ptr32_cnt=ptr64_cnt=float128_cnt=int128_cnt=0;
+  ptr32_cnt=ptr64_cnt=float80_cnt=float128_cnt=int128_cnt=0;
 
   other.clear();
 
@@ -96,6 +96,8 @@ void cpp_convert_typet::read_rec(const typet &type)
     double_cnt++;
   else if(type.id()==ID_float)
     float_cnt++;
+  else if(type.id()==ID_gcc_float80)
+    float80_cnt++;
   else if(type.id()==ID_gcc_float128)
     float128_cnt++;
   else if(type.id()==ID_gcc_int128)
@@ -218,12 +220,12 @@ void cpp_convert_typet::read_template(const typet &type)
 void cpp_convert_typet::read_function_type(const typet &type)
 {
   other.push_back(type);
-  typet &t=other.back();
-  t.id(ID_code);
+  other.back().id(ID_code);
+
+  code_typet &t = to_code_type(other.back());
 
   // change subtype to return_type
-  typet &return_type=
-    static_cast<typet &>(t.add(ID_return_type));
+  typet &return_type = t.return_type();
 
   return_type.swap(t.subtype());
   t.remove_subtype();
@@ -329,7 +331,7 @@ void cpp_convert_typet::write(typet &type)
        short_cnt || char_cnt || wchar_t_cnt ||
        char16_t_cnt || char32_t_cnt ||
        int8_cnt || int16_cnt || int32_cnt ||
-       int64_cnt || float128_cnt || int128_cnt)
+       int64_cnt || float80_cnt || float128_cnt || int128_cnt)
       throw "type modifier not applicable";
 
     if(other.size()!=1)
@@ -346,7 +348,7 @@ void cpp_convert_typet::write(typet &type)
        float_cnt ||
        int8_cnt || int16_cnt || int32_cnt ||
        int64_cnt || ptr32_cnt || ptr64_cnt ||
-       float128_cnt || int128_cnt)
+       float80_cnt || float128_cnt || int128_cnt)
       throw "illegal type modifier for double";
 
     if(long_cnt)
@@ -361,13 +363,31 @@ void cpp_convert_typet::write(typet &type)
        short_cnt || char_cnt || wchar_t_cnt || double_cnt ||
        char16_t_cnt || char32_t_cnt ||
        int8_cnt || int16_cnt || int32_cnt ||
-       int64_cnt || ptr32_cnt || ptr64_cnt || float128_cnt || int128_cnt)
+       int64_cnt || ptr32_cnt || ptr64_cnt ||
+       float80_cnt || float128_cnt || int128_cnt)
       throw "illegal type modifier for float";
 
     if(long_cnt)
       throw "float can't be long";
 
     type=float_type();
+  }
+  else if(float80_cnt)
+  {
+    if(signed_cnt || unsigned_cnt || int_cnt ||
+       cpp_bool_cnt || proper_bool_cnt ||
+       short_cnt || char_cnt || wchar_t_cnt || double_cnt ||
+       char16_t_cnt || char32_t_cnt ||
+       int8_cnt || int16_cnt || int32_cnt ||
+       int64_cnt || int128_cnt || ptr32_cnt || ptr64_cnt ||
+       float128_cnt)
+      throw "illegal type modifier for __float80";
+
+    if(long_cnt)
+      throw "__float80 can't be long";
+
+    // this isn't the same as long double
+    type=gcc_float64x_type();
   }
   else if(float128_cnt)
   {
@@ -568,19 +588,13 @@ void cpp_convert_typet::write(typet &type)
 
 void cpp_convert_plain_type(typet &type)
 {
-  if(type.id()==ID_cpp_name ||
-     type.id()==ID_struct ||
-     type.id()==ID_union ||
-     type.id()==ID_array ||
-     type.id()==ID_code ||
-     type.id()==ID_unsignedbv ||
-     type.id()==ID_signedbv ||
-     type.id()==ID_bool ||
-     type.id()==ID_floatbv ||
-     type.id()==ID_empty ||
-     type.id()==ID_symbol ||
-     type.id()==ID_constructor ||
-     type.id()==ID_destructor)
+  if(
+    type.id() == ID_cpp_name || type.id() == ID_struct ||
+    type.id() == ID_union || type.id() == ID_array || type.id() == ID_code ||
+    type.id() == ID_unsignedbv || type.id() == ID_signedbv ||
+    type.id() == ID_bool || type.id() == ID_floatbv || type.id() == ID_empty ||
+    type.id() == ID_symbol_type || type.id() == ID_constructor ||
+    type.id() == ID_destructor)
   {
   }
   else if(type.id()==ID_c_enum)

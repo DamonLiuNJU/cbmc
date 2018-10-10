@@ -6,6 +6,7 @@ Author: Daniel Kroening, kroening@cs.cmu.edu
 
 \********************************************************************/
 
+
 /// \file
 /// C++ Language Type Checking
 
@@ -19,21 +20,15 @@ void cpp_typecheckt::convert(cpp_declarationt &declaration)
   if(declaration.is_empty())
     return;
 
-  // Record the function bodies so we can check them later.
-  // This function is used recursively, so we save them.
-  method_bodiest old_method_bodies;
-  old_method_bodies.swap(method_bodies);
+  // The function bodies must not be checked here,
+  // but only at the very end when all declarations have been
+  // processed (or considering forward declarations at least)
 
   // templates are done in a dedicated function
   if(declaration.is_template())
     convert_template_declaration(declaration);
   else
     convert_non_template_declaration(declaration);
-
-  method_bodiest b;
-  b.swap(method_bodies);
-  typecheck_method_bodies(b);
-  method_bodies.swap(old_method_bodies);
 }
 
 void cpp_typecheckt::convert_anonymous_union(
@@ -46,12 +41,7 @@ void cpp_typecheckt::convert_anonymous_union(
   // unnamed object
   std::string identifier="#anon_union"+std::to_string(anon_counter++);
 
-  irept name(ID_name);
-  name.set(ID_identifier, identifier);
-  name.set(ID_C_source_location, declaration.source_location());
-
-  cpp_namet cpp_name;
-  cpp_name.move_to_sub(name);
+  const cpp_namet cpp_name(identifier, declaration.source_location());
   cpp_declaratort declarator;
   declarator.name()=cpp_name;
 
@@ -74,11 +64,10 @@ void cpp_typecheckt::convert_anonymous_union(
   // do scoping
   symbolt union_symbol=
     *symbol_table.get_writeable(follow(symbol.type).get(ID_name));
-  const irept::subt &components=union_symbol.type.add(ID_components).get_sub();
 
-  forall_irep(it, components)
+  for(const auto &c : to_union_type(union_symbol.type).components())
   {
-    if(it->find(ID_type).id()==ID_code)
+    if(c.type().id() == ID_code)
     {
       error().source_location=union_symbol.type.source_location();
       error() << "anonymous union `" << union_symbol.base_name
@@ -86,7 +75,7 @@ void cpp_typecheckt::convert_anonymous_union(
       throw 0;
     }
 
-    const irep_idt &base_name=it->get(ID_base_name);
+    const irep_idt &base_name = c.get_base_name();
 
     if(cpp_scopes.current_scope().contains(base_name))
     {
@@ -98,13 +87,13 @@ void cpp_typecheckt::convert_anonymous_union(
 
     cpp_idt &id=cpp_scopes.current_scope().insert(base_name);
     id.id_class = cpp_idt::id_classt::SYMBOL;
-    id.identifier=it->get(ID_name);
+    id.identifier = c.get_name();
     id.class_identifier=union_symbol.name;
     id.is_member=true;
   }
 
-  symbol_table.get_writeable_ref(union_symbol.name).type.set(
-    "#unnamed_object", symbol.base_name);
+  symbol_table.get_writeable_ref(union_symbol.name)
+    .type.set(ID_C_unnamed_object, symbol.base_name);
 
   code.swap(new_code);
 }
@@ -183,11 +172,15 @@ void cpp_typecheckt::convert_non_template_declaration(
     if(symbol.is_lvalue &&
        declarator.init_args().has_operands())
     {
-      symbol.value=
-        cpp_constructor(
-          symbol.location,
-          cpp_symbol_expr(symbol),
-          declarator.init_args().operands());
+      auto constructor = cpp_constructor(
+        symbol.location,
+        cpp_symbol_expr(symbol),
+        declarator.init_args().operands());
+
+      if(constructor.has_value())
+        symbol.value = constructor.value();
+      else
+        symbol.value = nil_exprt();
     }
   }
 }

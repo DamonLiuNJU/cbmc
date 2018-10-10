@@ -10,6 +10,8 @@
 
 #include <testing-utils/catch.hpp>
 #include <util/base_type.h>
+#include <util/namespace.h>
+#include <util/symbol_table.h>
 
 /// Checks a type is a pointer type optionally with a specific subtype
 /// \param type: The type to check
@@ -25,8 +27,8 @@ pointer_typet require_type::require_pointer(
 
   if(subtype)
   {
-    // TODO: use base_type_eq
-    REQUIRE(pointer.subtype() == subtype.value());
+    namespacet ns{symbol_tablet{}};
+    base_type_eq(pointer.subtype(), subtype.value(), ns);
   }
   return pointer;
 }
@@ -61,8 +63,8 @@ code_typet require_type::require_code(const typet &type)
 
 /// Verify a given type is an code_typet, and that the code it represents
 /// accepts a given number of parameters
-/// \param type The type to check
-/// \param num_params check the the given code_typet expects this
+/// \param type: The type to check
+/// \param num_params: check the the given code_typet expects this
 /// number of parameters
 /// \return The type cast to a code_typet
 code_typet
@@ -73,10 +75,33 @@ require_type::require_code(const typet &type, const size_t num_params)
   return code_type;
 }
 
+/// Checks a type is a java_method_typet (i.e. a function)
+/// \param type: The type to check
+/// \return The cast version of the type method_type
+java_method_typet require_type::require_java_method(const typet &type)
+{
+  REQUIRE(can_cast_type<java_method_typet>(type));
+  return to_java_method_type(type);
+}
+
+/// Verify a given type is an java_method_typet, and that the code it represents
+/// accepts a given number of parameters
+/// \param type: The type to check
+/// \param num_params: check the the given java_method_typet expects this
+/// number of parameters
+/// \return The type cast to a java_method_typet
+java_method_typet
+require_type::require_java_method(const typet &type, const size_t num_params)
+{
+  java_method_typet method_type = require_java_method(type);
+  REQUIRE(method_type.parameters().size() == num_params);
+  return method_type;
+}
+
 /// Verify that a function has a parameter of a specific name.
 /// \param function_type: The type of the function
 /// \param param_name: The name of the parameter
-/// \return: A reference to the parameter structure corresponding to this
+/// \return A reference to the parameter structure corresponding to this
 /// parameter name.
 code_typet::parametert require_type::require_parameter(
   const code_typet &function_type,
@@ -95,8 +120,8 @@ code_typet::parametert require_type::require_parameter(
 
 /// Helper function for testing that java generic type arguments match
 /// a given expectation.
-/// \param type_argument The generic type argument to test
-/// \param expected The expected value of the argument
+/// \param type_argument: The generic type argument to test
+/// \param expected: The expected value of the argument
 /// \return true if the generic type argument meets the expectations
 bool require_java_generic_type_argument_expectation(
   const reference_typet &type_argument,
@@ -125,7 +150,7 @@ bool require_java_generic_type_argument_expectation(
 }
 
 /// Verify a given type is a java_generic_type
-/// \param type The type to check
+/// \param type: The type to check
 /// \return The type, cast to a java_generic_typet
 java_generic_typet require_type::require_java_generic_type(const typet &type)
 {
@@ -141,8 +166,8 @@ java_generic_typet require_type::require_java_generic_type(const typet &type)
 ///   {{require_type::type_argument_kindt::Inst, "java::java.lang.Integer"},
 ///    {require_type::type_argument_kindt::Var, "T"}})
 ///
-/// \param type The type to check
-/// \param type_expectations A set of type argument kinds and identifiers
+/// \param type: The type to check
+/// \param type_expectations: A set of type argument kinds and identifiers
 ///  which should be expected as the type arguments of the given generic type.
 /// \return The given type, cast to a java_generic_typet
 java_generic_typet require_type::require_java_generic_type(
@@ -166,7 +191,7 @@ java_generic_typet require_type::require_java_generic_type(
 }
 
 /// Verify a given type is a java_generic_parameter, e.g., `T`
-/// \param type The type to check
+/// \param type: The type to check
 /// \return The type, cast to a java_generic_parametert
 java_generic_parametert
 require_type::require_java_generic_parameter(const typet &type)
@@ -178,8 +203,8 @@ require_type::require_java_generic_parameter(const typet &type)
 /// Verify a given type is a java_generic_parametert with the given name.
 /// Expected usage is something like this:
 /// require_java_generic_parameter(parameter, "java::Generic::T")
-/// \param type The type to check
-/// \param parameter String with the parameter name.
+/// \param type: The type to check
+/// \param parameter: String with the parameter name.
 /// \return The given type, cast to a java_generic_parametert
 java_generic_parametert require_type::require_java_generic_parameter(
   const typet &type,
@@ -196,8 +221,8 @@ java_generic_parametert require_type::require_java_generic_parameter(
 }
 
 /// Test a type to ensure it is not a java generics type.
-/// \param type The type to test
-/// \param expect_subtype Optionally, also test that the subtype of the given
+/// \param type: The type to test
+/// \param expect_subtype: Optionally, also test that the subtype of the given
 /// type matches this parameter
 /// \return The value passed in the first argument
 const typet &require_type::require_java_non_generic_type(
@@ -212,7 +237,7 @@ const typet &require_type::require_java_non_generic_type(
 }
 
 /// Checks that the given type is a complete class.
-/// \param class_type type of the class
+/// \param class_type: type of the class
 /// \return class_type of the class
 class_typet require_type::require_complete_class(const typet &class_type)
 {
@@ -226,7 +251,7 @@ class_typet require_type::require_complete_class(const typet &class_type)
 }
 
 /// Checks that the given type is an incomplete class.
-/// \param class_type type of the class
+/// \param class_type: type of the class
 /// \return class_type of the class
 class_typet require_type::require_incomplete_class(const typet &class_type)
 {
@@ -241,7 +266,7 @@ class_typet require_type::require_incomplete_class(const typet &class_type)
 
 /// Verify that a class is a valid java generic class.
 /// \param class_type: the class
-/// \return: A reference to the java generic class type.
+/// \return A reference to the java generic class type.
 java_generic_class_typet
 require_type::require_java_generic_class(const typet &class_type)
 {
@@ -262,7 +287,7 @@ require_type::require_java_generic_class(const typet &class_type)
 /// specified list of variables.
 /// \param class_type: the class
 /// \param type_variables: vector of type variables
-/// \return: A reference to the java generic class type.
+/// \return A reference to the java generic class type.
 java_generic_class_typet require_type::require_java_generic_class(
   const typet &class_type,
   const std::initializer_list<irep_idt> &type_variables)
@@ -290,7 +315,7 @@ java_generic_class_typet require_type::require_java_generic_class(
 
 /// Verify that a class is a complete, valid java generic class.
 /// \param class_type: the class
-/// \return: A reference to the java generic class type.
+/// \return A reference to the java generic class type.
 java_generic_class_typet
 require_type::require_complete_java_generic_class(const typet &class_type)
 {
@@ -302,7 +327,7 @@ require_type::require_complete_java_generic_class(const typet &class_type)
 /// specified list of variables.
 /// \param class_type: the class
 /// \param type_variables: vector of type variables
-/// \return: A reference to the java generic class type.
+/// \return A reference to the java generic class type.
 java_generic_class_typet require_type::require_complete_java_generic_class(
   const typet &class_type,
   const std::initializer_list<irep_idt> &type_variables)
@@ -313,7 +338,7 @@ java_generic_class_typet require_type::require_complete_java_generic_class(
 
 /// Verify that a class is a valid java implicitly generic class.
 /// \param class_type: the class
-/// \return: A reference to the java generic class type.
+/// \return A reference to the java generic class type.
 java_implicitly_generic_class_typet
 require_type::require_java_implicitly_generic_class(const typet &class_type)
 {
@@ -334,8 +359,8 @@ require_type::require_java_implicitly_generic_class(const typet &class_type)
 /// Verify that a class is a valid java generic class with the
 /// specified list of variables.
 /// \param class_type: the class
-/// \param type_variables: vector of type variables
-/// \return: A reference to the java generic class type.
+/// \param implicit_type_variables: vector of type variables
+/// \return A reference to the java generic class type.
 java_implicitly_generic_class_typet
 require_type::require_java_implicitly_generic_class(
   const typet &class_type,
@@ -366,7 +391,7 @@ require_type::require_java_implicitly_generic_class(
 
 /// Verify that a class is a complete, valid java implicitly generic class.
 /// \param class_type: the class
-/// \return: A reference to the java generic class type.
+/// \return A reference to the java generic class type.
 java_implicitly_generic_class_typet
 require_type::require_complete_java_implicitly_generic_class(
   const typet &class_type)
@@ -378,8 +403,8 @@ require_type::require_complete_java_implicitly_generic_class(
 /// Verify that a class is a complete, valid java generic class with the
 /// specified list of variables.
 /// \param class_type: the class
-/// \param type_variables: vector of type variables
-/// \return: A reference to the java generic class type.
+/// \param implicit_type_variables: vector of type variables
+/// \return A reference to the java generic class type.
 java_implicitly_generic_class_typet
 require_type::require_complete_java_implicitly_generic_class(
   const typet &class_type,
@@ -392,7 +417,7 @@ require_type::require_complete_java_implicitly_generic_class(
 
 /// Verify that a class is a valid nongeneric java class
 /// \param class_type: the class
-/// \return: A reference to the java generic class type.
+/// \return A reference to the java generic class type.
 java_class_typet
 require_type::require_java_non_generic_class(const typet &class_type)
 {
@@ -410,7 +435,7 @@ require_type::require_java_non_generic_class(const typet &class_type)
 
 /// Verify that a class is a complete, valid nongeneric java class
 /// \param class_type: the class
-/// \return: A reference to the java generic class type.
+/// \return A reference to the java generic class type.
 java_class_typet
 require_type::require_complete_java_non_generic_class(const typet &class_type)
 {
@@ -425,7 +450,7 @@ require_type::require_complete_java_non_generic_class(const typet &class_type)
 const symbol_typet &
 require_type::require_symbol(const typet &type, const irep_idt &identifier)
 {
-  REQUIRE(type.id() == ID_symbol);
+  REQUIRE(type.id() == ID_symbol_type);
   const symbol_typet &result = to_symbol_type(type);
   if(identifier != "")
   {
@@ -435,8 +460,8 @@ require_type::require_symbol(const typet &type, const irep_idt &identifier)
 }
 
 /// Verify a given type is a java generic symbol type
-/// \param type The type to check
-/// \param identifier The identifier to match
+/// \param type: The type to check
+/// \param identifier: The identifier to match
 /// \return The type, cast to a java_generic_symbol_typet
 java_generic_symbol_typet require_type::require_java_generic_symbol_type(
   const typet &type,
@@ -455,9 +480,9 @@ java_generic_symbol_typet require_type::require_java_generic_symbol_type(
 ///   {{require_type::type_argument_kindt::Inst, "java::java.lang.Integer"},
 ///    {require_type::type_argument_kindt::Var, "T"}})
 ///
-/// \param type The type to check
-/// \param identifier The identifier to match
-/// \param type_expectations A set of type argument kinds and identifiers
+/// \param type: The type to check
+/// \param identifier: The identifier to match
+/// \param type_expectations: A set of type argument kinds and identifiers
 ///  which should be expected as the type arguments of the given generic type
 /// \return The given type, cast to a java_generic_symbol_typet
 java_generic_symbol_typet require_type::require_java_generic_symbol_type(
@@ -483,8 +508,8 @@ java_generic_symbol_typet require_type::require_java_generic_symbol_type(
 
 /// Verify that the lambda method handles of a class match the given
 /// expectation.
-/// \param class_struct class type to be verified
-/// \param expected_identifiers expected list of lambda method handle
+/// \param class_type: class type to be verified
+/// \param expected_identifiers: expected list of lambda method handle
 ///   references
 /// \return lambda method handles of the class
 require_type::java_lambda_method_handlest

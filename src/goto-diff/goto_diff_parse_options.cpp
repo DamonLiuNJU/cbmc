@@ -17,34 +17,34 @@ Author: Peter Schrammel
 #include <memory>
 
 #include <util/config.h>
-#include <util/options.h>
-#include <util/make_unique.h>
 #include <util/exit_codes.h>
+#include <util/make_unique.h>
+#include <util/options.h>
+#include <util/version.h>
 
 #include <langapi/language.h>
 
 #include <goto-programs/adjust_float_expressions.h>
 #include <goto-programs/goto_convert_functions.h>
-#include <goto-programs/instrument_preconditions.h>
-#include <goto-programs/mm_io.h>
-#include <goto-programs/remove_function_pointers.h>
-#include <goto-programs/remove_virtual_functions.h>
-#include <goto-programs/remove_returns.h>
-#include <goto-programs/remove_vector.h>
-#include <goto-programs/remove_complex.h>
-#include <goto-programs/remove_asm.h>
-#include <goto-programs/remove_unused_functions.h>
-#include <goto-programs/remove_skip.h>
 #include <goto-programs/goto_inline.h>
-#include <goto-programs/show_properties.h>
-#include <goto-programs/set_properties.h>
+#include <goto-programs/instrument_preconditions.h>
+#include <goto-programs/link_to_library.h>
+#include <goto-programs/loop_ids.h>
+#include <goto-programs/mm_io.h>
 #include <goto-programs/read_goto_binary.h>
+#include <goto-programs/remove_asm.h>
+#include <goto-programs/remove_complex.h>
+#include <goto-programs/remove_function_pointers.h>
+#include <goto-programs/remove_returns.h>
+#include <goto-programs/remove_skip.h>
+#include <goto-programs/remove_unused_functions.h>
+#include <goto-programs/remove_vector.h>
+#include <goto-programs/remove_virtual_functions.h>
+#include <goto-programs/rewrite_union.h>
+#include <goto-programs/set_properties.h>
+#include <goto-programs/show_properties.h>
 #include <goto-programs/string_abstraction.h>
 #include <goto-programs/string_instrumentation.h>
-#include <goto-programs/loop_ids.h>
-#include <goto-programs/link_to_library.h>
-
-#include <goto-symex/rewrite_union.h>
 
 #include <goto-instrument/cover.h>
 
@@ -55,29 +55,27 @@ Author: Peter Schrammel
 #include <ansi-c/cprover_library.h>
 #include <cpp/cprover_library.h>
 
-#include <cbmc/version.h>
-
 #include "goto_diff.h"
 #include "syntactic_diff.h"
 #include "unified_diff.h"
 #include "change_impact.h"
 
-goto_diff_parse_optionst::goto_diff_parse_optionst(int argc, const char **argv):
-  parse_options_baset(GOTO_DIFF_OPTIONS, argc, argv),
-  goto_diff_languagest(cmdline, ui_message_handler),
-  ui_message_handler(cmdline, "GOTO-DIFF " CBMC_VERSION),
-  languages2(cmdline, ui_message_handler)
+goto_diff_parse_optionst::goto_diff_parse_optionst(int argc, const char **argv)
+  : parse_options_baset(GOTO_DIFF_OPTIONS, argc, argv),
+    goto_diff_languagest(cmdline, ui_message_handler),
+    ui_message_handler(cmdline, std::string("GOTO-DIFF ") + CBMC_VERSION),
+    languages2(cmdline, ui_message_handler)
 {
 }
 
 ::goto_diff_parse_optionst::goto_diff_parse_optionst(
   int argc,
   const char **argv,
-  const std::string &extra_options):
-  parse_options_baset(GOTO_DIFF_OPTIONS+extra_options, argc, argv),
-  goto_diff_languagest(cmdline, ui_message_handler),
-  ui_message_handler(cmdline, "GOTO-DIFF " CBMC_VERSION),
-  languages2(cmdline, ui_message_handler)
+  const std::string &extra_options)
+  : parse_options_baset(GOTO_DIFF_OPTIONS + extra_options, argc, argv),
+    goto_diff_languagest(cmdline, ui_message_handler),
+    ui_message_handler(cmdline, std::string("GOTO-DIFF ") + CBMC_VERSION),
+    languages2(cmdline, ui_message_handler)
 {
 }
 
@@ -244,9 +242,8 @@ int goto_diff_parse_optionst::doit()
   //
   // Print a banner
   //
-  status() << "GOTO-DIFF version " CBMC_VERSION " "
-           << sizeof(void *)*8 << "-bit "
-           << config.this_architecture() << " "
+  status() << "GOTO-DIFF version " << CBMC_VERSION << " " << sizeof(void *) * 8
+           << "-bit " << config.this_architecture() << " "
            << config.this_operating_system() << eom;
 
   if(cmdline.args.size()!=2)
@@ -319,8 +316,7 @@ int goto_diff_parse_optionst::doit()
     return CPROVER_EXIT_SUCCESS;
   }
 
-  syntactic_difft sd(goto_model1, goto_model2, options, get_message_handler());
-  sd.set_ui(get_ui());
+  syntactic_difft sd(goto_model1, goto_model2, options, ui_message_handler);
   sd();
   sd.output_functions();
 
@@ -486,10 +482,9 @@ bool goto_diff_parse_optionst::process_goto_program(
 void goto_diff_parse_optionst::help()
 {
   // clang-format off
-  std::cout <<
-    "\n"
-    // NOLINTNEXTLINE(whitespace/line_length)
-    "* *           GOTO_DIFF " CBMC_VERSION " - Copyright (C) 2016            * *\n"
+  std::cout << '\n' << banner_string("GOTO_DIFF", CBMC_VERSION) << '\n'
+            <<
+    "* *                  Copyright (C) 2016                     * *\n"
     "* *            Daniel Kroening, Peter Schrammel             * *\n"
     "* *                 kroening@kroening.com                   * *\n"
     "\n"

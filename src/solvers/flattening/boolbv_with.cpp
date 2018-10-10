@@ -88,17 +88,23 @@ void boolbvt::convert_with(
   else if(type.id()==ID_bv ||
           type.id()==ID_unsignedbv ||
           type.id()==ID_signedbv)
-    return convert_with_bv(type, op1, op2, prev_bv, next_bv);
+    return convert_with_bv(op1, op2, prev_bv, next_bv);
   else if(type.id()==ID_struct)
     return
       convert_with_struct(to_struct_type(type), op1, op2, prev_bv, next_bv);
+  else if(type.id() == ID_struct_tag)
+    return convert_with(
+      ns.follow_tag(to_struct_tag_type(type)), op1, op2, prev_bv, next_bv);
   else if(type.id()==ID_union)
-    return convert_with_union(to_union_type(type), op1, op2, prev_bv, next_bv);
-  else if(type.id()==ID_symbol)
+    return convert_with_union(to_union_type(type), op2, prev_bv, next_bv);
+  else if(type.id() == ID_union_tag)
+    return convert_with(
+      ns.follow_tag(to_union_tag_type(type)), op1, op2, prev_bv, next_bv);
+  else if(type.id() == ID_symbol_type)
     return convert_with(ns.follow(type), op1, op2, prev_bv, next_bv);
 
   error().source_location=type.source_location();
-  error() << "unexpected with type: " << type.id();
+  error() << "unexpected with type: " << type.id() << eom;
   throw 0;
 }
 
@@ -172,7 +178,6 @@ void boolbvt::convert_with_array(
 }
 
 void boolbvt::convert_with_bv(
-  const typet &type,
   const exprt &op1,
   const exprt &op2,
   const bvt &prev_bv,
@@ -220,16 +225,13 @@ void boolbvt::convert_with_struct(
 
   std::size_t offset=0;
 
-  for(struct_typet::componentst::const_iterator
-      it=components.begin();
-      it!=components.end();
-      it++)
+  for(const auto &c : components)
   {
-    const typet &subtype=it->type();
+    const typet &subtype = c.type();
 
     std::size_t sub_width=boolbv_width(subtype);
 
-    if(it->get_name()==component_name)
+    if(c.get_name() == component_name)
     {
       if(!base_type_eq(subtype, op2.type(), ns))
       {
@@ -261,7 +263,6 @@ void boolbvt::convert_with_struct(
 
 void boolbvt::convert_with_union(
   const union_typet &type,
-  const exprt &op1,
   const exprt &op2,
   const bvt &prev_bv,
   bvt &next_bv)

@@ -18,16 +18,18 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/std_types.h>
 #include <util/invariant.h>
 
+#include "merged_type.h"
+
 void ansi_c_declaratort::build(irept &src)
 {
   typet *p=static_cast<typet *>(&src);
 
-  // walk down subtype until we hit symbol or "abstract"
+  // walk down subtype until we hit typedef_type, symbol or "abstract"
   while(true)
   {
     typet &t=*p;
 
-    if(t.id()==ID_symbol)
+    if(t.id() == ID_typedef_type || t.id() == ID_symbol)
     {
       set_base_name(t.get(ID_C_base_name));
       add_source_location()=t.source_location();
@@ -47,8 +49,8 @@ void ansi_c_declaratort::build(irept &src)
     else if(t.id()==ID_merged_type)
     {
       // we always walk down the _last_ member of a merged type
-      assert(!t.subtypes().empty());
-      p=&(t.subtypes().back());
+      auto &merged_type = to_merged_type(t);
+      p = &merged_type.last_type();
     }
     else
       p=&t.subtype();
@@ -81,8 +83,6 @@ void ansi_c_declarationt::output(std::ostream &out) const
     out << " is_extern";
   if(get_is_static_assert())
     out << " is_static_assert";
-  if(get_is_always_inline())
-    out << " is_always_inline";
   out << "\n";
 
   out << "Type: " << type().pretty() << "\n";
@@ -107,8 +107,8 @@ typet ansi_c_declarationt::full_type(
     else if(p->id()==ID_merged_type)
     {
       // we always go down on the right-most subtype
-      assert(!p->subtypes().empty());
-      p=&(p->subtypes().back());
+      auto &merged_type = to_merged_type(*p);
+      p = &merged_type.last_type();
     }
     else
       UNREACHABLE;
@@ -152,9 +152,10 @@ void ansi_c_declarationt::to_symbol(
     if(get_is_inline())
       symbol.type.set(ID_C_inlined, true);
 
-    if(config.ansi_c.mode==configt::ansi_ct::flavourt::GCC ||
-       config.ansi_c.mode==configt::ansi_ct::flavourt::APPLE ||
-       config.ansi_c.mode==configt::ansi_ct::flavourt::ARM)
+    if(
+      config.ansi_c.mode == configt::ansi_ct::flavourt::GCC ||
+      config.ansi_c.mode == configt::ansi_ct::flavourt::CLANG ||
+      config.ansi_c.mode == configt::ansi_ct::flavourt::ARM)
     {
       // GCC extern inline cleanup, to enable remove_internal_symbols
       // do its full job
@@ -166,9 +167,6 @@ void ansi_c_declarationt::to_symbol(
           symbol.is_extern=false;
         else  if(get_is_extern()) // traditional GCC
           symbol.is_file_local=true;
-
-        if(get_is_always_inline())
-          symbol.is_macro = true;
       }
 
       // GCC __attribute__((__used__)) - do not treat those as file-local

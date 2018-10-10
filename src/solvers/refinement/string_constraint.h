@@ -68,16 +68,10 @@ public:
   string_constraintt() = delete;
 
   string_constraintt(
-    symbol_exprt _univ_var,
-    exprt lower_bound,
-    exprt upper_bound,
-    exprt body)
-    : univ_var(_univ_var),
-      lower_bound(lower_bound),
-      upper_bound(upper_bound),
-      body(body)
-  {
-  }
+    const symbol_exprt &_univ_var,
+    const exprt &lower_bound,
+    const exprt &upper_bound,
+    const exprt &body);
 
   // Default bound inferior is 0
   string_constraintt(symbol_exprt univ_var, exprt upper_bound, exprt body)
@@ -110,8 +104,6 @@ public:
 };
 
 /// Used for debug printing.
-/// \param [in] ns: namespace for `from_expr`
-/// \param [in] identifier: identifier for `from_expr`
 /// \param [in] expr: constraint to render
 /// \return rendered string
 inline std::string to_string(const string_constraintt &expr)
@@ -182,8 +174,6 @@ public:
 };
 
 /// Used for debug printing.
-/// \param [in] ns: namespace for `from_expr`
-/// \param [in] identifier: identifier for `from_expr`
 /// \param [in] expr: constraint to render
 /// \return rendered string
 inline std::string to_string(const string_not_contains_constraintt &expr)

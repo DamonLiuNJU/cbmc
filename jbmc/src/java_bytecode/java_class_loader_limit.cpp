@@ -13,18 +13,53 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <json/json_parser.h>
 
-/// initializes class with either regex matcher or match set
-/// \par parameters: parameter from `java-cp-include-files`
+#include <util/invariant.h>
+
+/// Initializes class with either regex matcher or match set. If the string
+/// starts with an `@` it is treated as a path to a JSON file. Otherwise, it is
+/// treated as a regex.
+///
+/// The regex case describes which class files should be loaded in the form of a
+/// regular expression used with `regex_match`.
+///
+/// The match set is a list of files to load in JSON format, the argument is the
+/// name of the JSON file, prefixed with `@`. The file contains one section to
+/// list the .jar files to load and one section to list the .class files to load
+/// from the .jar.
+///
+/// for example a file called `load.json` with the following content:
+/// {
+///   "jar":
+///   [
+///     "A.jar",
+///     "B.jar"
+///   ],
+///   "classFiles":
+///   [
+///     "jarfile3$A.class",
+///     "jarfile3.class"
+///   ]
+/// }
+/// would be specified via `--java-cp-include-files @load.json` and would
+/// instruct the driver to load `A.jar` and `B.jar` and the two .class files
+/// `jarfile3$A.class` and `jarfile3.class`. All the rest of the .jar files is
+/// ignored.
+///
+/// \param java_cp_include_files: parameter from `java-cp-include-files` in the
+///   format as described above
 void java_class_loader_limitt::setup_class_load_limit(
   const std::string &java_cp_include_files)
 {
-  if(java_cp_include_files.empty())
-    throw "class regexp cannot be empty, `get_language_options` not called?";
+  PRECONDITION(!java_cp_include_files.empty());
 
   // '@' signals file reading with list of class files to load
   use_regex_match = java_cp_include_files[0] != '@';
   if(use_regex_match)
+  {
     regex_matcher=std::regex(java_cp_include_files);
+    debug() << "Limit loading to classes matching '" << java_cp_include_files
+            << "'" << eom;
+  }
   else
   {
     assert(java_cp_include_files.length()>1);
@@ -47,14 +82,19 @@ void java_class_loader_limitt::setup_class_load_limit(
   }
 }
 
-/// \par parameters: class file name
+/// Use the class load limiter to decide whether a class file should be loaded
+/// or not.
+/// \param file_name: the name of the class file to load
 /// \return true if file should be loaded, else false
 bool java_class_loader_limitt::load_class_file(const std::string &file_name)
 {
   if(use_regex_match)
   {
     std::smatch string_matches;
-    return std::regex_match(file_name, string_matches, regex_matcher);
+    if(std::regex_match(file_name, string_matches, regex_matcher))
+      return true;
+    debug() << file_name + " discarded since not matching loader regexp" << eom;
+    return false;
   }
   else
     // load .class file only if it is in the match set

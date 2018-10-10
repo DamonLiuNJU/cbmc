@@ -11,7 +11,7 @@ ifneq ($(MINISAT),)
   MINISAT_INCLUDE=-I $(MINISAT)
   MINISAT_LIB=$(MINISAT)/Solver$(OBJEXT) $(MINISAT)/Proof$(OBJEXT) $(MINISAT)/File$(OBJEXT)
   CP_CXXFLAGS += -DHAVE_MINISAT
-  CLEANFILES += $(MINISAT_LIB) $(patsubst %$(OBJEXT), %.d, $(MINISAT_LIB))
+  CLEANFILES += $(MINISAT_LIB) $(patsubst %$(OBJEXT), %$(DEPEXT), $(MINISAT_LIB))
 endif
 
 ifneq ($(MINISAT2),)
@@ -19,13 +19,12 @@ ifneq ($(MINISAT2),)
   MINISAT2_INCLUDE=-I $(MINISAT2)
   MINISAT2_LIB=$(MINISAT2)/minisat/simp/SimpSolver$(OBJEXT) $(MINISAT2)/minisat/core/Solver$(OBJEXT)
   CP_CXXFLAGS += -DHAVE_MINISAT2 -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS
-  CLEANFILES += $(MINISAT2_LIB) $(patsubst %$(OBJEXT), %.d, $(MINISAT2_LIB))
+  CLEANFILES += $(MINISAT2_LIB) $(patsubst %$(OBJEXT), %$(DEPEXT), $(MINISAT2_LIB))
 endif
 
 ifneq ($(IPASIR),)
   IPASIR_SRC=sat/satcheck_ipasir.cpp
   IPASIR_INCLUDE=-I $(IPASIR)
-  IPASIR_LIB=$(IPASIR)/ipasir.a
   CP_CXXFLAGS += -DHAVE_IPASIR -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS
   override CXXFLAGS := $(filter-out -pedantic, $(CXXFLAGS))
 endif
@@ -35,7 +34,7 @@ ifneq ($(GLUCOSE),)
   GLUCOSE_INCLUDE=-I $(GLUCOSE)
   GLUCOSE_LIB=$(GLUCOSE)/simp/SimpSolver$(OBJEXT) $(GLUCOSE)/core/Solver$(OBJEXT)
   CP_CXXFLAGS += -DHAVE_GLUCOSE -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS
-  CLEANFILES += $(GLUCOSE_LIB) $(patsubst %$(OBJEXT), %.d, $(GLUCOSE_LIB))
+  CLEANFILES += $(GLUCOSE_LIB) $(patsubst %$(OBJEXT), %$(DEPEXT), $(GLUCOSE_LIB))
 endif
 
 ifneq ($(SQUOLEM2),)
@@ -132,6 +131,7 @@ SRC = $(BOOLEFORCE_SRC) \
       flattening/boolbv_vector.cpp \
       flattening/boolbv_width.cpp \
       flattening/boolbv_with.cpp \
+      flattening/bv_dimacs.cpp \
       flattening/bv_endianness_map.cpp \
       flattening/bv_minimize.cpp \
       flattening/bv_pointers.cpp \
@@ -146,8 +146,6 @@ SRC = $(BOOLEFORCE_SRC) \
       floatbv/float_approximation.cpp \
       lowering/popcount.cpp \
       miniBDD/miniBDD.cpp \
-      prop/aig.cpp \
-      prop/aig_prop.cpp \
       prop/bdd_expr.cpp \
       prop/cover_goals.cpp \
       prop/literal.cpp \
@@ -166,6 +164,7 @@ SRC = $(BOOLEFORCE_SRC) \
       refinement/string_builtin_function.cpp \
       refinement/string_refinement.cpp \
       refinement/string_refinement_util.cpp \
+      refinement/string_constraint.cpp \
       refinement/string_constraint_generator_code_points.cpp \
       refinement/string_constraint_generator_comparison.cpp \
       refinement/string_constraint_generator_concat.cpp \
@@ -216,11 +215,18 @@ SOLVER_LIB = $(CHAFF_LIB) $(BOOLEFORCE_LIB) $(MINISAT_LIB) \
         $(MINISAT2_LIB) $(SQUOLEM2_LIB) $(CUDD_LIB) \
         $(PICOSAT_LIB) $(LINGELING_LIB) $(GLUCOSE_LIB) $(CADICAL_LIB)
 
+SOLVER_OBJS = $(filter %$(OBJEXT), $(SOLVER_LIB))
+ifneq ($(SOLVER_OBJS),)
+-include $(SOLVER_OBJS:$(OBJEXT)=$(DEPEXT))
+endif
+
 ###############################################################################
 
 solvers$(LIBEXT): $(OBJ) $(SOLVER_LIB)
-	$(LINKLIB) $(LIBSOLVER)
+	$(LINKLIB)
+
+-include $(smt2/smt2_solver$(DEPEXT))
 
 smt2_solver$(EXEEXT): $(OBJ) smt2/smt2_solver$(OBJEXT) \
 	../util/util$(LIBEXT) ../langapi/langapi$(LIBEXT) ../big-int/big-int$(LIBEXT) $(SOLVER_LIB)
-	$(LINKBIN) $(LIBSOLVER)
+	$(LINKBIN)

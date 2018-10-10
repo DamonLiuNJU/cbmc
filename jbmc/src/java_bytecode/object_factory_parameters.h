@@ -14,8 +14,12 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <util/irep.h>
 
+class cmdlinet;
+class optionst;
+
 #define MAX_NONDET_ARRAY_LENGTH_DEFAULT 5
-#define MAX_NONDET_STRING_LENGTH std::numeric_limits<std::int32_t>::max()
+#define MAX_NONDET_STRING_LENGTH \
+  static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())
 #define MAX_NONDET_TREE_DEPTH 5
 #define MAX_NONNULL_TREE_DEPTH 0
 
@@ -26,6 +30,9 @@ struct object_factory_parameterst final
 
   /// Maximum value for the non-deterministically-chosen length of a string.
   size_t max_nondet_string_length=MAX_NONDET_STRING_LENGTH;
+
+  /// Minimum value for the non-deterministically-chosen length of a string.
+  size_t min_nondet_string_length = 0;
 
   /// Maximum depth for object hierarchy on input.
   /// Used to prevent object factory to loop infinitely during the
@@ -52,6 +59,11 @@ struct object_factory_parameterst final
 
   /// Function id, used as a prefix for identifiers of temporaries
   irep_idt function_id;
+
+  /// Assigns the parameters from given options
+  void set(const optionst &);
 };
+
+void parse_object_factory_options(const cmdlinet &, optionst &);
 
 #endif

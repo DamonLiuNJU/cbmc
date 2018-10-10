@@ -84,6 +84,7 @@ symbol_exprt get_or_create_string_literal_symbol(
   symbolt new_symbol;
   new_symbol.name = escaped_symbol_name_with_prefix;
   new_symbol.type = string_type;
+  new_symbol.type.set(ID_C_constant, true);
   new_symbol.base_name = escaped_symbol_name;
   new_symbol.pretty_name = value;
   new_symbol.mode = ID_java;
@@ -94,19 +95,19 @@ symbol_exprt get_or_create_string_literal_symbol(
   namespacet ns(symbol_table);
 
   // Regardless of string refinement setting, at least initialize
-  // the literal with @clsid = String and @lock = false:
+  // the literal with @clsid = String
   symbol_typet jlo_symbol("java::java.lang.Object");
   const auto &jlo_struct = to_struct_type(ns.follow(jlo_symbol));
   struct_exprt jlo_init(jlo_symbol);
   const auto &jls_struct = to_struct_type(ns.follow(string_type));
-  java_root_class_init(jlo_init, jlo_struct, false, "java::java.lang.String");
+  java_root_class_init(jlo_init, jlo_struct, "java::java.lang.String");
 
   // If string refinement *is* around, populate the actual
   // contents as well:
   if(string_refinement_enabled)
   {
     const array_exprt data =
-      utf16_to_array(utf8_to_utf16_little_endian(id2string(value)));
+      utf16_to_array(utf8_to_utf16_native_endian(id2string(value)));
 
     struct_exprt literal_init(new_symbol.type);
     literal_init.operands().resize(jls_struct.components().size());
@@ -131,6 +132,7 @@ symbol_exprt get_or_create_string_literal_symbol(
     array_symbol.is_state_var = true;
     array_symbol.value = data;
     array_symbol.type = array_symbol.value.type();
+    array_symbol.type.set(ID_C_constant, true);
 
     if(symbol_table.add(array_symbol))
       throw "failed to add constarray symbol to symbol table";
@@ -161,6 +163,7 @@ symbol_exprt get_or_create_string_literal_symbol(
       java_int_type(),
       symbol_table);
     return_symbol.type = return_symbol.value.type();
+    return_symbol.type.set(ID_C_constant, true);
     if(symbol_table.add(return_symbol))
       throw "failed to add return symbol to symbol table";
 
@@ -197,7 +200,7 @@ symbol_exprt get_or_create_string_literal_symbol(
   else if(jls_struct.get_bool(ID_incomplete_class))
   {
     // Case where java.lang.String was stubbed, and so directly defines
-    // @class_identifier and @lock:
+    // @class_identifier
     new_symbol.value = jlo_init;
   }
 

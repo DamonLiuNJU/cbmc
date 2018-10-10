@@ -68,12 +68,9 @@ std::string expr2cppt::convert_struct(
   bool first=true;
   size_t last_size=0;
 
-  for(struct_typet::componentst::const_iterator
-      c_it=components.begin();
-      c_it!=components.end();
-      c_it++)
+  for(const auto &c : components)
   {
-    if(c_it->type().id()==ID_code)
+    if(c.type().id() == ID_code)
     {
     }
     else
@@ -96,7 +93,7 @@ std::string expr2cppt::convert_struct(
 
       dest+=sep;
       dest+='.';
-      dest+=c_it->get_string(ID_pretty_name);
+      dest += c.get_string(ID_pretty_name);
       dest+='=';
       dest+=tmp;
     }
@@ -187,7 +184,7 @@ std::string expr2cppt::convert_rec(
     else
       return expr2ct::convert_rec(src, qualifiers, declarator);
   }
-  else if(src.id()==ID_symbol)
+  else if(src.id() == ID_symbol_type)
   {
     const irep_idt &identifier=
       to_symbol_type(src).get_identifier();
@@ -460,7 +457,7 @@ std::string expr2cppt::convert_with_precedence(
     return "nullptr";
   else if(src.id()==ID_unassigned)
     return "?";
-  else if(src.id()=="pod_constructor")
+  else if(src.id() == ID_pod_constructor)
     return "pod_constructor";
   else
     return expr2ct::convert_with_precedence(src, precedence);

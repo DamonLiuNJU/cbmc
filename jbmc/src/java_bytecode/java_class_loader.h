@@ -14,21 +14,22 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <regex>
 #include <set>
 
-#include <util/message.h>
 #include <util/fixed_keys_map_wrapper.h>
 
-#include "java_bytecode_parse_tree.h"
-#include "java_class_loader_limit.h"
 #include "jar_file.h"
+#include "java_bytecode_parse_tree.h"
+#include "java_class_loader_base.h"
+#include "java_class_loader_limit.h"
 
-class java_class_loadert:public messaget
+/// Class responsible to load .class files. Either directly from a specific
+/// file, from a classpath specification or from a Java archive (JAR) file.
+class java_class_loadert : public java_class_loader_baset
 {
 public:
-  /// A map associating logical class names with the name of the .class file
-  /// implementing it for all classes inside a single JAR file
-  typedef std::map<irep_idt, std::string> jar_indext;
-
+  /// A list of parse trees supporting overlay classes
   typedef std::list<java_bytecode_parse_treet> parse_tree_with_overlayst;
+  /// A map from class names to list of parse tree where multiple entries can
+  /// exist in case of overlay classes.
   typedef std::map<irep_idt, parse_tree_with_overlayst>
     parse_tree_with_overridest_mapt;
 
@@ -53,6 +54,8 @@ public:
     java_class_loader_limitt &class_loader_limit,
     const irep_idt &class_name);
 
+  /// Set the argument of the class loader limit \ref java_class_loader_limitt
+  /// \param java_cp_include_files: argument string for java_class_loader_limit
   void set_java_cp_include_files(const std::string &java_cp_include_files)
   {
     this->java_cp_include_files = java_cp_include_files;
@@ -73,20 +76,9 @@ public:
     for(const auto &id : classes)
       java_load_classes.push_back(id);
   }
-  void add_jar_file(const std::string &f)
-  {
-    jar_files.push_back(f);
-  }
 
-  static std::string file_to_class_name(const std::string &);
-  static std::string class_name_to_file(const irep_idt &);
+  std::vector<irep_idt> load_entire_jar(const std::string &jar_path);
 
-  void load_entire_jar(java_class_loader_limitt &, const std::string &jar_path);
-
-  const jar_indext &get_jar_index(const std::string &jar_path)
-  {
-    return jars_by_path.at(jar_path);
-  }
   /// Map from class names to the bytecode parse trees
   fixed_keys_map_wrappert<parse_tree_with_overridest_mapt>
   get_class_with_overlays_map()
@@ -99,25 +91,6 @@ public:
     return class_map.at(class_name).front();
   }
 
-  /// Load jar archive or retrieve from cache if already loaded
-  /// \param limit
-  /// \param filename name of the file
-  jar_filet &jar_pool(
-    java_class_loader_limitt &limit, const std::string &filename);
-
-  /// Load jar archive or retrieve from cache if already loaded
-  /// \param limit
-  /// \param buffer_name name of the original file
-  /// \param pmem memory pointer to the contents of the file
-  /// \param size size of the memory buffer
-  /// Note that this mocks the existence of a file which may
-  /// or may not exist since  the actual data bis retrieved from memory.
-  jar_filet &jar_pool(
-    java_class_loader_limitt &limit,
-    const std::string &buffer_name,
-    const void *pmem,
-    size_t size);
-
 private:
   /// Either a regular expression matching files that will be allowed to be
   /// loaded or a string of the form `@PATH` where PATH is the file path of a
@@ -126,33 +99,14 @@ private:
   /// information.
   std::string java_cp_include_files;
 
-  /// List of filesystem paths to .jar files that will be used, in the given
-  /// order, to find and load a class, provided its name (see \ref
-  /// get_parse_tree).
-  std::list<std::string> jar_files;
-
   /// Classes to be explicitly loaded
   std::vector<irep_idt> java_load_classes;
   get_extra_class_refs_functiont get_extra_class_refs;
 
-  /// The jar_indext for each jar file we've read
-  std::map<std::string, jar_indext> jars_by_path;
-
-  /// Jar files that have been loaded
-  std::map<std::string, jar_filet> m_archives;
   /// Map from class names to the bytecode parse trees
   parse_tree_with_overridest_mapt class_map;
 
-  typedef optionalt<std::reference_wrapper<const jar_indext>>
-    jar_index_optcreft;
-  jar_index_optcreft read_jar_file(
-    java_class_loader_limitt &class_loader_limit,
-    const std::string &jar_path);
-  optionalt<java_bytecode_parse_treet> get_class_from_jar(
-    const irep_idt &class_name,
-    const std::string &jar_file,
-    const jar_indext &jar_index,
-    java_class_loader_limitt &class_loader_limit);
+  optionalt<std::vector<irep_idt>> read_jar_file(const std::string &jar_path);
 };
 
 #endif // CPROVER_JAVA_BYTECODE_JAVA_CLASS_LOADER_H

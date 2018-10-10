@@ -56,11 +56,10 @@ std::string expr2javat::convert_code_function_call(
     dest+='=';
   }
 
-  const code_typet &code_type=
-    to_code_type(src.function().type());
+  const java_method_typet &method_type =
+    to_java_method_type(src.function().type());
 
-  bool has_this=code_type.has_this() &&
-                !src.arguments().empty();
+  bool has_this = method_type.has_this() && !src.arguments().empty();
 
   if(has_this)
   {
@@ -128,15 +127,9 @@ std::string expr2javat::convert_struct(
   bool first=true;
   size_t last_size=0;
 
-  for(struct_typet::componentst::const_iterator
-      c_it=components.begin();
-      c_it!=components.end();
-      c_it++)
+  for(const auto &c : components)
   {
-    if(c_it->type().id()==ID_code)
-    {
-    }
-    else
+    if(c.type().id() != ID_code)
     {
       std::string tmp=convert(*o_it);
       std::string sep;
@@ -156,7 +149,7 @@ std::string expr2javat::convert_struct(
 
       dest+=sep;
       dest+='.';
-      dest+=c_it->get_string(ID_pretty_name);
+      dest += id2string(c.get_pretty_name());
       dest+='=';
       dest+=tmp;
     }
@@ -202,7 +195,9 @@ std::string expr2javat::convert_constant(
     if(to_integer(src, int_value))
       UNREACHABLE;
 
-    dest += "(char)'" + utf16_little_endian_to_java(int_value.to_long()) + '\'';
+    // Character literals in Java have type 'char', thus no cast is needed.
+    // This is different from C, where charater literals have type 'int'.
+    dest += '\'' + utf16_native_endian_to_java(int_value.to_long()) + '\'';
     return dest;
   }
   else if(src.type()==java_byte_type())
@@ -284,7 +279,7 @@ std::string expr2javat::convert_rec(
     return q+"byte"+d;
   else if(src.id()==ID_code)
   {
-    const code_typet &code_type=to_code_type(src);
+    const java_method_typet &method_type = to_java_method_type(src);
 
     // Java doesn't really have syntax for function types,
     // so we make one up, loosely inspired by the syntax
@@ -293,11 +288,10 @@ std::string expr2javat::convert_rec(
     std::string dest="";
 
     dest+='(';
-    const code_typet::parameterst &parameters=code_type.parameters();
+    const java_method_typet::parameterst &parameters = method_type.parameters();
 
-    for(code_typet::parameterst::const_iterator
-        it=parameters.begin();
-        it!=parameters.end();
+    for(java_method_typet::parameterst::const_iterator it = parameters.begin();
+        it != parameters.end();
         it++)
     {
       if(it!=parameters.begin())
@@ -306,7 +300,7 @@ std::string expr2javat::convert_rec(
       dest+=convert(it->type());
     }
 
-    if(code_type.has_ellipsis())
+    if(method_type.has_ellipsis())
     {
       if(!parameters.empty())
         dest+=", ";
@@ -315,7 +309,7 @@ std::string expr2javat::convert_rec(
 
     dest+=')';
 
-    const typet &return_type=code_type.return_type();
+    const typet &return_type = method_type.return_type();
     dest+=" -> "+convert(return_type);
 
     return q + dest;

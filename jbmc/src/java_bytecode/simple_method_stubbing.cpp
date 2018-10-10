@@ -127,14 +127,14 @@ void java_simple_method_stubst::create_method_stub_at(
                     : update_in_placet::NO_UPDATE_IN_PLACE);
 
   // Insert new_instructions into parent block.
-  if(!new_instructions.operands().empty())
+  if(!new_instructions.statements().empty())
   {
-    auto insert_position = parent_block.operands().begin();
+    auto insert_position = parent_block.statements().begin();
     std::advance(insert_position, insert_before_index);
-    parent_block.operands().insert(
+    parent_block.statements().insert(
       insert_position,
-      new_instructions.operands().begin(),
-      new_instructions.operands().end());
+      new_instructions.statements().begin(),
+      new_instructions.statements().end());
   }
 }
 
@@ -145,7 +145,7 @@ void java_simple_method_stubst::create_method_stub_at(
 void java_simple_method_stubst::create_method_stub(symbolt &symbol)
 {
   code_blockt new_instructions;
-  const code_typet &required_type = to_code_type(symbol.type);
+  const java_method_typet &required_type = to_java_method_type(symbol.type);
 
   // synthetic source location that contains the opaque function name only
   source_locationt synthesized_source_location;
@@ -170,7 +170,7 @@ void java_simple_method_stubst::create_method_stub(symbolt &symbol)
     code_assignt get_argument(
       init_symbol_expression, symbol_exprt(this_argument.get_identifier()));
     get_argument.add_source_location() = synthesized_source_location;
-    new_instructions.copy_to_operands(get_argument);
+    new_instructions.add(get_argument);
     create_method_stub_at(
       this_type,
       init_symbol_expression,
@@ -220,7 +220,7 @@ void java_simple_method_stubst::create_method_stub(symbolt &symbol)
           0,
           false,
           false);
-      new_instructions.copy_to_operands(code_returnt(to_return));
+      new_instructions.add(code_returnt(to_return));
     }
   }
 
@@ -233,10 +233,17 @@ void java_simple_method_stubst::create_method_stub(symbolt &symbol)
 void java_simple_method_stubst::check_method_stub(const irep_idt &symname)
 {
   const symbolt &sym = *symbol_table.lookup(symname);
-  if(
-    !sym.is_type && sym.value.id() == ID_nil && sym.type.id() == ID_code &&
-    // Don't stub internal locking primitives:
-    sym.name != "java::monitorenter" && sym.name != "java::monitorexit")
+  if(!sym.is_type && sym.value.id() == ID_nil &&
+    sym.type.id() == ID_code &&
+    // do not stub internal locking calls as 'create_method_stub' does not
+    // automatically create the appropriate symbols for the formal parameters.
+    // This means that symex will (rightfully) crash  when it encounters the
+    // function call as it will not be able to find symbols for the fromal
+    // parameters.
+    sym.name !=
+      "java::java.lang.Object.monitorenter:(Ljava/lang/Object;)V" &&
+    sym.name !=
+      "java::java.lang.Object.monitorexit:(Ljava/lang/Object;)V")
   {
     create_method_stub(*symbol_table.get_writeable(symname));
   }

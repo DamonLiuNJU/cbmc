@@ -61,8 +61,7 @@ void dump_ct::operator()(std::ostream &os)
     {
       typet &type=it2->type();
 
-      if(type.id()==ID_symbol &&
-         type.get_bool(ID_C_transparent_union))
+      if(type.id() == ID_symbol_type && type.get_bool(ID_C_transparent_union))
       {
         symbolt new_type_sym=
           ns.lookup(to_symbol_type(type).get_identifier());
@@ -314,7 +313,7 @@ void dump_ct::convert_compound(
   bool recursive,
   std::ostream &os)
 {
-  if(type.id()==ID_symbol)
+  if(type.id() == ID_symbol_type)
   {
     const symbolt &symbol=
       ns.lookup(to_symbol_type(type).get_identifier());
@@ -323,11 +322,12 @@ void dump_ct::convert_compound(
     if(!system_symbols.is_symbol_internal_symbol(symbol, system_headers))
       convert_compound(symbol.type, unresolved, recursive, os);
   }
-  else if(type.id()==ID_c_enum_tag)
+  else if(
+    type.id() == ID_c_enum_tag || type.id() == ID_struct_tag ||
+    type.id() == ID_union_tag)
   {
-    const symbolt &symbol=
-      ns.lookup(to_c_enum_tag_type(type).get_identifier());
-    DATA_INVARIANT(symbol.is_type, "symbol expected to be type symbol");
+    const symbolt &symbol = ns.lookup(to_tag_type(type));
+    DATA_INVARIANT(symbol.is_type, "tag expected to be type symbol");
 
     if(!system_symbols.is_symbol_internal_symbol(symbol, system_headers))
       convert_compound(symbol.type, unresolved, recursive, os);
@@ -382,7 +382,7 @@ void dump_ct::convert_compound(
     UNREACHABLE;
     /*
     assert(parent_it->id() == ID_base);
-    assert(parent_it->get(ID_type) == ID_symbol);
+    assert(parent_it->get(ID_type) == ID_symbol_type);
 
     const irep_idt &base_id=
       parent_it->find(ID_type).get(ID_identifier);
@@ -416,12 +416,8 @@ void dump_ct::convert_compound(
 
   std::stringstream struct_body;
 
-  for(struct_union_typet::componentst::const_iterator
-      it=type.components().begin();
-      it!=type.components().end();
-      it++)
+  for(const auto &comp : type.components())
   {
-    const struct_typet::componentt &comp=*it;
     const typet &comp_type=ns.follow(comp.type());
 
     if(comp_type.id()==ID_code ||
@@ -669,10 +665,17 @@ void dump_ct::collect_typedefs_rec(
   {
     collect_typedefs_rec(type.subtype(), early, local_deps);
   }
-  else if(type.id()==ID_symbol)
+  else if(type.id() == ID_symbol_type)
   {
     const symbolt &symbol=
       ns.lookup(to_symbol_type(type).get_identifier());
+    collect_typedefs_rec(symbol.type, early, local_deps);
+  }
+  else if(
+    type.id() == ID_c_enum_tag || type.id() == ID_struct_tag ||
+    type.id() == ID_union_tag)
+  {
+    const symbolt &symbol = ns.lookup(to_tag_type(type));
     collect_typedefs_rec(symbol.type, early, local_deps);
   }
 
@@ -916,7 +919,7 @@ void dump_ct::cleanup_harness(code_blockt &b)
   if(!ns.lookup("argc'", argc_sym))
   {
     symbol_exprt argc("argc", argc_sym->type);
-    replace.insert(argc_sym->name, argc);
+    replace.insert(argc_sym->symbol_expr(), argc);
     code_declt d(argc);
     decls.add(d);
   }
@@ -924,7 +927,10 @@ void dump_ct::cleanup_harness(code_blockt &b)
   if(!ns.lookup("argv'", argv_sym))
   {
     symbol_exprt argv("argv", argv_sym->type);
-    replace.insert(argv_sym->name, argv);
+    // replace argc' by argc in the type of argv['] to maintain type consistency
+    // while replacing
+    replace(argv);
+    replace.insert(symbol_exprt(argv_sym->name, argv.type()), argv);
     code_declt d(argv);
     decls.add(d);
   }
@@ -932,7 +938,7 @@ void dump_ct::cleanup_harness(code_blockt &b)
   if(!ns.lookup("return'", return_sym))
   {
     symbol_exprt return_value("return_value", return_sym->type);
-    replace.insert(return_sym->name, return_value);
+    replace.insert(return_sym->symbol_expr(), return_value);
     code_declt d(return_value);
     decls.add(d);
   }
@@ -1226,18 +1232,15 @@ void dump_ct::cleanup_expr(exprt &expr)
 
     PRECONDITION(old_components.size()==old_ops.size());
     exprt::operandst::iterator o_it=old_ops.begin();
-    for(struct_union_typet::componentst::const_iterator
-        it=old_components.begin();
-        it!=old_components.end();
-        ++it)
+    for(const auto &old_comp : old_components)
     {
-      const bool is_zero_bit_field=
-        it->type().id()==ID_c_bit_field &&
-        to_c_bit_field_type(it->type()).get_width()==0;
+      const bool is_zero_bit_field =
+        old_comp.type().id() == ID_c_bit_field &&
+        to_c_bit_field_type(old_comp.type()).get_width() == 0;
 
-      if(!it->get_is_padding() && !is_zero_bit_field)
+      if(!old_comp.get_is_padding() && !is_zero_bit_field)
       {
-        type.components().push_back(*it);
+        type.components().push_back(old_comp);
         expr.move_to_operands(*o_it);
       }
       ++o_it;

@@ -1,6 +1,6 @@
 analyses
 ansi-c # should go away
-cbmc # version.h and bmc.h
+cbmc # bmc.h
 goto-instrument
 goto-programs
 goto-symex
@@ -9,4 +9,5 @@ jbmc
 langapi # should go away
 linking
 pointer-analysis
+solvers/refinement
 util

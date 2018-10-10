@@ -9,7 +9,6 @@ Author: Daniel Kroening, kroening@kroening.com
 #include "java_utils.h"
 
 #include "java_root_class.h"
-#include "java_types.h"
 
 #include <util/invariant.h>
 #include <util/message.h>
@@ -34,9 +33,7 @@ unsigned java_local_variable_slots(const typet &t)
   if(t.id()==ID_pointer)
     return 1;
 
-  unsigned bitwidth;
-
-  bitwidth=t.get_unsigned_int(ID_width);
+  const std::size_t bitwidth = t.get_size_t(ID_width);
   INVARIANT(
     bitwidth==8 ||
     bitwidth==16 ||
@@ -45,10 +42,10 @@ unsigned java_local_variable_slots(const typet &t)
     "all types constructed in java_types.cpp encode JVM types "
     "with these bit widths");
 
-  return bitwidth==64 ? 2 : 1;
+  return bitwidth == 64 ? 2u : 1u;
 }
 
-unsigned java_method_parameter_slots(const code_typet &t)
+unsigned java_method_parameter_slots(const java_method_typet &t)
 {
   unsigned slots=0;
 
@@ -69,11 +66,9 @@ void generate_class_stub(
   message_handlert &message_handler,
   const struct_union_typet::componentst &componentst)
 {
-  class_typet class_type;
+  java_class_typet class_type;
 
   class_type.set_tag(class_name);
-  class_type.set(ID_base_name, class_name);
-
   class_type.set(ID_incomplete_class, true);
 
   // produce class symbol
@@ -81,7 +76,7 @@ void generate_class_stub(
   new_symbol.base_name=class_name;
   new_symbol.pretty_name=class_name;
   new_symbol.name="java::"+id2string(class_name);
-  class_type.set(ID_name, new_symbol.name);
+  class_type.set_name(new_symbol.name);
   new_symbol.type=class_type;
   new_symbol.mode=ID_java;
   new_symbol.is_type=true;
@@ -290,9 +285,7 @@ exprt make_function_application(
   declare_function(fun_name, type, symbol_table);
 
   // Function application
-  function_application_exprt call(symbol_exprt(fun_name), type);
-  call.arguments()=arguments;
-  return call;
+  return function_application_exprt(symbol_exprt(fun_name), arguments, type);
 }
 
 /// Strip java:: prefix from given identifier
@@ -333,9 +326,6 @@ std::string pretty_print_java_type(const std::string &fqn_java_type)
 ///   trying to resolve a reference to A.b, component_class_id is "A".
 /// \param component_name: component basename to search for. If searching for
 ///   A.b, this is "b".
-/// \param user_class_id: class identifier making reference to the sought
-///   component. The user class is relevant when determining whether package-
-///   scoped components are visible from a particular use site.
 /// \param symbol_table: global symbol table.
 /// \param class_hierarchy: global class hierarchy.
 /// \param include_interfaces: if true, search for the given component in all
@@ -345,7 +335,6 @@ std::string pretty_print_java_type(const std::string &fqn_java_type)
 resolve_inherited_componentt::inherited_componentt get_inherited_component(
   const irep_idt &component_class_id,
   const irep_idt &component_name,
-  const irep_idt &user_class_id,
   const symbol_tablet &symbol_table,
   const class_hierarchyt &class_hierarchy,
   bool include_interfaces)
@@ -420,11 +409,10 @@ resolve_inherited_componentt::inherited_componentt get_inherited_component(
 /// \return true if this static field is known never to be null
 bool is_non_null_library_global(const irep_idt &symbolid)
 {
-  static const std::unordered_set<irep_idt> non_null_globals = {
-    "java::java.lang.System.out",
-    "java::java.lang.System.err",
-    "java::java.lang.System.in"};
-  return non_null_globals.count(symbolid);
+  static const irep_idt in = "java::java.lang.System.in";
+  static const irep_idt out = "java::java.lang.System.out";
+  static const irep_idt err = "java::java.lang.System.err";
+  return symbolid == in || symbolid == out || symbolid == err;
 }
 
 /// Methods belonging to the class org.cprover.CProver that should be ignored

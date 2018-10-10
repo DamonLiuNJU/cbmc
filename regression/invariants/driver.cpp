@@ -12,10 +12,13 @@ Author: Chris Smowton, chris.smowton@diffblue.com
 #include <string>
 #include <sstream>
 
+#include <util/arith_tools.h>
+#include <util/c_types.h>
 #include <util/invariant.h>
 #include <util/invariant_utils.h>
+#include <util/irep.h>
+#include <util/std_expr.h>
 #include <util/std_types.h>
-#include <util/c_types.h>
 
 /// An example of structured invariants-- this contains fields to
 /// describe the error to a catcher, and also produces a human-readable
@@ -40,17 +43,44 @@ public:
     const std::string &function,
     int line,
     const std::string &backtrace,
+    const std::string &condition,
     int code,
-    const std::string &_description):
-    invariant_failedt(
-      file,
-      function,
-      line,
-      backtrace,
-      pretty_print(code, _description)),
-    error_code(code),
-    description(_description)
+    const std::string &_description)
+    : invariant_failedt(
+        file,
+        function,
+        line,
+        backtrace,
+        condition,
+        pretty_print(code, _description)),
+      error_code(code),
+      description(_description)
   {
+  }
+};
+
+struct DiagnosticA
+{
+};
+struct DiagnosticB
+{
+};
+
+template <>
+struct diagnostics_helpert<DiagnosticA>
+{
+  static std::string diagnostics_as_string(const DiagnosticA &)
+  {
+    return "Diagnostic A";
+  }
+};
+
+template <>
+struct diagnostics_helpert<DiagnosticB>
+{
+  static std::string diagnostics_as_string(const DiagnosticB &)
+  {
+    return "Diagnostic B";
   }
 };
 
@@ -89,6 +119,48 @@ int main(int argc, char** argv)
     DATA_INVARIANT(false, "Test invariant failure");
   else if(arg=="irep")
     INVARIANT_WITH_IREP(false, "error with irep", pointer_type(void_typet()));
+  else if(arg == "invariant-diagnostics")
+    INVARIANT_WITH_DIAGNOSTICS(
+      false,
+      "invariant with diagnostics failure",
+      "invariant diagnostics information");
+  else if(arg == "precondition-diagnostics")
+    PRECONDITION_WITH_DIAGNOSTICS(
+      false, "precondition diagnostics information");
+  else if(arg == "postcondition-diagnostics")
+    POSTCONDITION_WITH_DIAGNOSTICS(
+      false, "postcondition diagnostics information");
+  else if(arg == "check-return-diagnostics")
+    CHECK_RETURN_WITH_DIAGNOSTICS(
+      false, "check return diagnostics information");
+  else if(arg == "data-invariant-diagnostics")
+    DATA_INVARIANT_WITH_DIAGNOSTICS(
+      false,
+      "data invariant with diagnostics failure",
+      "data invariant diagnostics information");
+  else if(arg == "invariant-with-lots-of-diagnostics")
+    INVARIANT_WITH_DIAGNOSTICS(
+      false,
+      "an invariant that fails",
+      "diagnostic 1",
+      "diagnostic 2",
+      "diagnostic 3",
+      "diagnostic 4");
+  else if(arg == "invariant-with-custom-diagnostics")
+    INVARIANT_WITH_DIAGNOSTICS(
+      false,
+      "an invariant with some custom diagnostics",
+      DiagnosticA{},
+      DiagnosticB{});
+  else if(arg == "invariant-with-irep-diagnostics")
+  {
+    INVARIANT_WITH_DIAGNOSTICS(
+      false,
+      "an invariant with irep diagnostics",
+      irep_pretty_diagnosticst{
+        plus_exprt{from_integer(8, signedbv_typet(32)),
+                   from_integer(13, signedbv_typet(32))}});
+  }
   else
     return 1;
 }

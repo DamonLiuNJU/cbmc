@@ -184,9 +184,9 @@ void symex_target_equationt::decl(
 
 /// declare a fresh variable
 void symex_target_equationt::dead(
-  const exprt &guard,
-  const ssa_exprt &ssa_lhs,
-  const sourcet &source)
+  const exprt &,
+  const ssa_exprt &,
+  const sourcet &)
 {
   // we currently don't record these
 }
@@ -209,16 +209,18 @@ void symex_target_equationt::location(
 /// just record a location
 void symex_target_equationt::function_call(
   const exprt &guard,
-  const irep_idt &identifier,
+  const irep_idt &function_identifier,
+  const std::vector<exprt> &ssa_function_arguments,
   const sourcet &source)
 {
   SSA_steps.push_back(SSA_stept());
   SSA_stept &SSA_step=SSA_steps.back();
 
-  SSA_step.guard=guard;
-  SSA_step.type=goto_trace_stept::typet::FUNCTION_CALL;
-  SSA_step.source=source;
-  SSA_step.identifier=identifier;
+  SSA_step.guard = guard;
+  SSA_step.type = goto_trace_stept::typet::FUNCTION_CALL;
+  SSA_step.source = source;
+  SSA_step.function_identifier = function_identifier;
+  SSA_step.ssa_function_arguments = ssa_function_arguments;
 
   merge_ireps(SSA_step);
 }
@@ -226,16 +228,16 @@ void symex_target_equationt::function_call(
 /// just record a location
 void symex_target_equationt::function_return(
   const exprt &guard,
-  const irep_idt &identifier,
+  const irep_idt &function_identifier,
   const sourcet &source)
 {
   SSA_steps.push_back(SSA_stept());
   SSA_stept &SSA_step=SSA_steps.back();
 
-  SSA_step.guard=guard;
-  SSA_step.type=goto_trace_stept::typet::FUNCTION_RETURN;
-  SSA_step.source=source;
-  SSA_step.identifier=identifier;
+  SSA_step.guard = guard;
+  SSA_step.type = goto_trace_stept::typet::FUNCTION_RETURN;
+  SSA_step.source = source;
+  SSA_step.function_identifier = function_identifier;
 
   merge_ireps(SSA_step);
 }
@@ -383,6 +385,7 @@ void symex_target_equationt::convert(
     convert_assumptions(prop_conv);
     convert_assertions(prop_conv);
     convert_goto_instructions(prop_conv);
+    convert_function_calls(prop_conv);
     convert_io(prop_conv);
     convert_constraints(prop_conv);
   }
@@ -407,9 +410,8 @@ void symex_target_equationt::convert_assignments(
       decision_procedure.conditional_output(
         decision_procedure.debug(),
         [&step](messaget::mstreamt &mstream) {
-          std::ostringstream oss;
-          step.output(oss);
-          mstream << oss.str() << messaget::eom;
+          step.output(mstream);
+          mstream << messaget::eom;
         });
 
       decision_procedure.set_to_true(step.cond_expr);
@@ -432,7 +434,7 @@ void symex_target_equationt::convert_decls(
       {
         prop_conv.convert(step.cond_expr);
       }
-      catch(const bitvector_conversion_exceptiont &conversion_exception)
+      catch(const bitvector_conversion_exceptiont &)
       {
         util_throw_with_nested(
           equation_conversion_exceptiont(
@@ -456,16 +458,15 @@ void symex_target_equationt::convert_guards(
       prop_conv.conditional_output(
         prop_conv.debug(),
         [&step](messaget::mstreamt &mstream) {
-          std::ostringstream oss;
-          step.output(oss);
-          mstream << oss.str() << messaget::eom;
+          step.output(mstream);
+          mstream << messaget::eom;
         });
 
       try
       {
         step.guard_literal = prop_conv.convert(step.guard);
       }
-      catch(const bitvector_conversion_exceptiont &conversion_exception)
+      catch(const bitvector_conversion_exceptiont &)
       {
         util_throw_with_nested(
           equation_conversion_exceptiont(
@@ -491,16 +492,15 @@ void symex_target_equationt::convert_assumptions(
         prop_conv.conditional_output(
           prop_conv.debug(),
           [&step](messaget::mstreamt &mstream) {
-            std::ostringstream oss;
-            step.output(oss);
-            mstream << oss.str() << messaget::eom;
+            step.output(mstream);
+            mstream << messaget::eom;
           });
 
         try
         {
           step.cond_literal = prop_conv.convert(step.cond_expr);
         }
-        catch(const bitvector_conversion_exceptiont &conversion_exception)
+        catch(const bitvector_conversion_exceptiont &)
         {
           util_throw_with_nested(
             equation_conversion_exceptiont(
@@ -527,16 +527,15 @@ void symex_target_equationt::convert_goto_instructions(
         prop_conv.conditional_output(
           prop_conv.debug(),
           [&step](messaget::mstreamt &mstream) {
-            std::ostringstream oss;
-            step.output(oss);
-            mstream << oss.str() << messaget::eom;
+            step.output(mstream);
+            mstream << messaget::eom;
           });
 
         try
         {
           step.cond_literal = prop_conv.convert(step.cond_expr);
         }
-        catch(const bitvector_conversion_exceptiont &conversion_exception)
+        catch(const bitvector_conversion_exceptiont &)
         {
           util_throw_with_nested(
             equation_conversion_exceptiont(
@@ -562,16 +561,15 @@ void symex_target_equationt::convert_constraints(
         decision_procedure.conditional_output(
           decision_procedure.debug(),
           [&step](messaget::mstreamt &mstream) {
-            std::ostringstream oss;
-            step.output(oss);
-            mstream << oss.str() << messaget::eom;
+            step.output(mstream);
+            mstream << messaget::eom;
           });
 
         try
         {
           decision_procedure.set_to_true(step.cond_expr);
         }
-        catch(const bitvector_conversion_exceptiont &conversion_exception)
+        catch(const bitvector_conversion_exceptiont &)
         {
           util_throw_with_nested(
             equation_conversion_exceptiont(
@@ -623,6 +621,13 @@ void symex_target_equationt::convert_assertions(
   {
     if(step.is_assert())
     {
+      prop_conv.conditional_output(
+        prop_conv.debug(),
+        [&step](messaget::mstreamt &mstream) {
+          step.output(mstream);
+          mstream << messaget::eom;
+        });
+
       implies_exprt implication(
         assumption,
         step.cond_expr);
@@ -632,7 +637,7 @@ void symex_target_equationt::convert_assertions(
       {
         step.cond_literal = prop_conv.convert(implication);
       }
-      catch(const bitvector_conversion_exceptiont &conversion_exception)
+      catch(const bitvector_conversion_exceptiont &)
       {
         util_throw_with_nested(
           equation_conversion_exceptiont(
@@ -656,6 +661,39 @@ void symex_target_equationt::convert_assertions(
 
   // the below is 'true' if there are no assertions
   prop_conv.set_to_true(disjunction(disjuncts));
+}
+
+/// converts function calls
+/// \par parameters: decision procedure
+/// \return -
+void symex_target_equationt::convert_function_calls(
+  decision_proceduret &dec_proc)
+{
+  std::size_t argument_count=0;
+
+  for(auto &step : SSA_steps)
+    if(!step.ignore)
+    {
+      step.converted_function_arguments.reserve(step.ssa_function_arguments.size());
+
+      for(const auto &arg : step.ssa_function_arguments)
+      {
+        if(arg.is_constant() ||
+           arg.id()==ID_string_constant)
+          step.converted_function_arguments.push_back(arg);
+        else
+        {
+          const irep_idt identifier="symex::args::"+std::to_string(argument_count++);
+          symbol_exprt symbol(identifier, arg.type());
+
+          equal_exprt eq(arg, symbol);
+          merge_irep(eq);
+
+          dec_proc.set_to(eq, true);
+          step.converted_function_arguments.push_back(symbol);
+        }
+      }
+    }
 }
 
 /// converts I/O
@@ -690,7 +728,6 @@ void symex_target_equationt::convert_io(
     }
 }
 
-
 void symex_target_equationt::merge_ireps(SSA_stept &SSA_step)
 {
   merge_irep(SSA_step.guard);
@@ -704,6 +741,9 @@ void symex_target_equationt::merge_ireps(SSA_stept &SSA_step)
 
   for(auto &step : SSA_step.io_args)
     merge_irep(step);
+
+  for(auto &arg : SSA_step.ssa_function_arguments)
+    merge_irep(arg);
 
   // converted_io_args is merged in convert_io
 }

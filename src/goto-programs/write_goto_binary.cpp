@@ -13,14 +13,16 @@ Author: CM Wintersteiger
 
 #include <fstream>
 
-#include <util/message.h>
+#include <util/exception_utils.h>
+#include <util/invariant.h>
 #include <util/irep_serialization.h>
+#include <util/message.h>
 #include <util/symbol_table.h>
 
 #include <goto-programs/goto_model.h>
 
-/// Writes a goto program to disc, using goto binary format ver 2
-bool write_goto_binary_v3(
+/// Writes a goto program to disc, using goto binary format ver 4
+bool write_goto_binary_v4(
   std::ostream &out,
   const symbol_tablet &symbol_table,
   const goto_functionst &goto_functions,
@@ -148,23 +150,18 @@ bool write_goto_binary(
   irep_serializationt::ireps_containert irepc;
   irep_serializationt irepconverter(irepc);
 
-  switch(version)
-  {
-  case 1:
-    throw "version 1 no longer supported";
-
-  case 2:
-    throw "version 2 no longer supported";
-
-  case 3:
-    return write_goto_binary_v3(
+  const int current_goto_version = 4;
+  if(version < current_goto_version)
+    throw invalid_command_line_argument_exceptiont(
+      "version " + std::to_string(version) + " no longer supported",
+      "supported version = " + std::to_string(current_goto_version));
+  else if(version > current_goto_version)
+    throw invalid_command_line_argument_exceptiont(
+      "unknown goto binary version " + std::to_string(version),
+      "supported version = " + std::to_string(current_goto_version));
+  else
+    return write_goto_binary_v4(
       out, symbol_table, goto_functions, irepconverter);
-
-  default:
-    throw "unknown goto binary version";
-  }
-
-  return false;
 }
 
 /// Writes a goto program to disc

@@ -8,7 +8,6 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include "bv_arithmetic.h"
 
-#include <cassert>
 #include <ostream>
 
 #include "string2int.h"
@@ -52,7 +51,7 @@ void bv_arithmetict::print(std::ostream &out) const
   out << to_ansi_c_string();
 }
 
-std::string bv_arithmetict::format(const format_spect &format_spec) const
+std::string bv_arithmetict::format(const format_spect &) const
 {
   std::string result;
 
@@ -85,14 +84,12 @@ mp_integer bv_arithmetict::pack() const
 
 exprt bv_arithmetict::to_expr() const
 {
-  constant_exprt result(spec.to_type());
-  result.set_value(integer2binary(value, spec.width));
-  return result;
+  return constant_exprt(integer2bv(value, spec.width), spec.to_type());
 }
 
 bv_arithmetict &bv_arithmetict::operator/=(const bv_arithmetict &other)
 {
-  assert(other.spec==spec);
+  PRECONDITION(other.spec == spec);
 
   if(other.value==0)
     value=0;
@@ -104,7 +101,7 @@ bv_arithmetict &bv_arithmetict::operator/=(const bv_arithmetict &other)
 
 bv_arithmetict &bv_arithmetict::operator*=(const bv_arithmetict &other)
 {
-  assert(other.spec==spec);
+  PRECONDITION(other.spec == spec);
 
   value*=other.value;
   adjust();
@@ -114,7 +111,7 @@ bv_arithmetict &bv_arithmetict::operator*=(const bv_arithmetict &other)
 
 bv_arithmetict &bv_arithmetict::operator+=(const bv_arithmetict &other)
 {
-  assert(other.spec==spec);
+  PRECONDITION(other.spec == spec);
 
   value+=other.value;
   adjust();
@@ -124,7 +121,7 @@ bv_arithmetict &bv_arithmetict::operator+=(const bv_arithmetict &other)
 
 bv_arithmetict &bv_arithmetict::operator -= (const bv_arithmetict &other)
 {
-  assert(other.spec==spec);
+  PRECONDITION(other.spec == spec);
 
   value-=other.value;
   adjust();
@@ -134,7 +131,7 @@ bv_arithmetict &bv_arithmetict::operator -= (const bv_arithmetict &other)
 
 bv_arithmetict &bv_arithmetict::operator%=(const bv_arithmetict &other)
 {
-  assert(other.spec==spec);
+  PRECONDITION(other.spec == spec);
 
   value%=other.value;
   adjust();
@@ -185,7 +182,7 @@ void bv_arithmetict::change_spec(const bv_spect &dest_spec)
 
 void bv_arithmetict::from_expr(const exprt &expr)
 {
-  assert(expr.is_constant());
+  PRECONDITION(expr.is_constant());
   spec=bv_spect(expr.type());
-  value=binary2integer(expr.get_string(ID_value), spec.is_signed);
+  value = bv2integer(expr.get_string(ID_value), spec.is_signed);
 }

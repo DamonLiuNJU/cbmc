@@ -15,6 +15,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/base_type.h>
 #include <util/byte_operators.h>
 #include <util/c_types.h>
+#include <util/exception_utils.h>
 #include <util/invariant.h>
 #include <util/pointer_offset_size.h>
 
@@ -195,8 +196,9 @@ exprt goto_symext::address_arithmetic(
     if(expr.id()==ID_symbol &&
        expr.get_bool(ID_C_SSA_symbol))
     {
-      offset=compute_pointer_offset(expr, ns);
-      PRECONDITION(offset >= 0);
+      auto offset_opt = compute_pointer_offset(expr, ns);
+      PRECONDITION(offset_opt.has_value());
+      offset = *offset_opt;
     }
 
     if(offset>0)
@@ -214,8 +216,26 @@ exprt goto_symext::address_arithmetic(
     else
       result=address_of_exprt(result);
   }
+  else if(expr.id() == ID_typecast)
+  {
+    const typecast_exprt &tc_expr = to_typecast_expr(expr);
+
+    result = address_arithmetic(tc_expr.op(), state, guard, keep_array);
+
+    // treat &array as &array[0]
+    const typet &expr_type = ns.follow(expr.type());
+    typet dest_type_subtype;
+
+    if(expr_type.id() == ID_array && !keep_array)
+      dest_type_subtype = expr_type.subtype();
+    else
+      dest_type_subtype = expr_type;
+
+    result = typecast_exprt(result, pointer_type(dest_type_subtype));
+  }
   else
-    throw "goto_symext::address_arithmetic does not handle "+expr.id_string();
+    throw unsupported_operation_exceptiont(
+      "goto_symext::address_arithmetic does not handle " + expr.id_string());
 
   const typet &expr_type=ns.follow(expr.type());
   INVARIANT((expr_type.id()==ID_array && !keep_array) ||
@@ -233,8 +253,21 @@ void goto_symext::dereference_rec(
 {
   if(expr.id()==ID_dereference)
   {
-    if(expr.operands().size()!=1)
-      throw "dereference takes one operand";
+    dereference_exprt to_check = to_dereference_expr(expr);
+    bool expr_is_not_null = false;
+
+    if(state.threads.size() == 1)
+    {
+      const irep_idt &expr_function = state.source.pc->function;
+      if(!expr_function.empty())
+      {
+        state.get_original_name(to_check);
+
+        expr_is_not_null =
+          state.safe_pointers.at(expr_function).is_safe_dereference(
+            to_check, state.source.pc);
+      }
+    }
 
     exprt tmp1;
     tmp1.swap(expr.op0());
@@ -246,7 +279,12 @@ void goto_symext::dereference_rec(
     symex_dereference_statet symex_dereference_state(*this, state);
 
     value_set_dereferencet dereference(
-      ns, state.symbol_table, options, symex_dereference_state, language_mode);
+      ns,
+      state.symbol_table,
+      options,
+      symex_dereference_state,
+      language_mode,
+      expr_is_not_null);
 
     // std::cout << "**** " << format(tmp1) << '\n';
     exprt tmp2=
@@ -300,8 +338,11 @@ void goto_symext::dereference_rec(
     exprt &object=address_of_expr.object();
 
     const typet &expr_type=ns.follow(expr.type());
-    expr=address_arithmetic(object, state, guard,
-                            expr_type.subtype().id()==ID_array);
+    expr = address_arithmetic(
+      object,
+      state,
+      guard,
+      to_pointer_type(expr_type).subtype().id() == ID_array);
   }
   else if(expr.id()==ID_typecast)
   {

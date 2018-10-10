@@ -8,6 +8,16 @@ Author: Peter Schrammel
 
 /// \file
 /// Constant propagation
+///
+/// A simple, unsound constant propagator. Assignments to symbols (local and
+/// global variables) are tracked, and propagated if a unique value is found
+/// at a given use site. Function calls are accounted for (they are assumed to
+/// overwrite all address-taken variables; see \ref dirtyt), but assignments
+/// through pointers are not (they are assumed to have no effect).
+///
+/// Can be restricted to operate over only particular symbols by passing a
+/// predicate to a \ref constant_propagator_ait constructor, in which case this
+/// can be rendered sound by restricting it to non-address-taken variables.
 
 #ifndef CPROVER_ANALYSES_CONSTANT_PROPAGATOR_H
 #define CPROVER_ANALYSES_CONSTANT_PROPAGATOR_H
@@ -17,6 +27,8 @@ Author: Peter Schrammel
 
 #include "ai.h"
 #include "dirty.h"
+
+class constant_propagator_ait;
 
 class constant_propagator_domaint:public ai_domain_baset
 {
@@ -68,15 +80,12 @@ public:
 
   struct valuest
   {
-  public:
-    valuest():is_bottom(true) {}
-
     // maps variables to constants
-    replace_symbolt replace_const;
-    bool is_bottom;
+    address_of_aware_replace_symbolt replace_const;
+    bool is_bottom = true;
 
     bool merge(const valuest &src);
-    bool meet(const valuest &src);
+    bool meet(const valuest &src, const namespacet &ns);
 
     // set whole state
 
@@ -102,25 +111,13 @@ public:
       return !is_bottom && replace_const.empty();
     }
 
-    // set single identifier
-
-    void set_to(const irep_idt &lhs, const exprt &rhs)
+    void set_to(const symbol_exprt &lhs, const exprt &rhs)
     {
-      replace_const.expr_map[lhs]=rhs;
+      replace_const.set(lhs, rhs);
       is_bottom=false;
     }
 
-    void set_to(const symbol_exprt &lhs, const exprt &rhs)
-    {
-      set_to(lhs.get_identifier(), rhs);
-    }
-
-    bool set_to_top(const symbol_exprt &expr)
-    {
-      return set_to_top(expr.get_identifier());
-    }
-
-    bool set_to_top(const irep_idt &id);
+    bool set_to_top(const symbol_exprt &expr);
 
     void set_dirty_to_top(const dirtyt &dirty, const namespacet &ns);
 
@@ -130,7 +127,7 @@ public:
 
     bool is_empty() const
     {
-      return replace_const.expr_map.empty();
+      return replace_const.empty();
     }
 
     void output(std::ostream &out, const namespacet &ns) const;
@@ -143,12 +140,15 @@ public:
 protected:
   void assign_rec(
     valuest &values,
-    const exprt &lhs, const exprt &rhs,
-    const namespacet &ns);
+    const exprt &lhs,
+    const exprt &rhs,
+    const namespacet &ns,
+    const constant_propagator_ait *cp);
 
   bool two_way_propagate_rec(
     const exprt &expr,
-    const namespacet &ns);
+    const namespacet &ns,
+    const constant_propagator_ait *cp);
 
   bool partial_evaluate_with_all_rounding_modes(
     exprt &expr,
@@ -160,13 +160,35 @@ protected:
 class constant_propagator_ait:public ait<constant_propagator_domaint>
 {
 public:
-  explicit constant_propagator_ait(const goto_functionst &goto_functions):
-    dirty(goto_functions)
+  typedef std::function<bool(const exprt &, const namespacet &)>
+    should_track_valuet;
+
+  static bool track_all_values(const exprt &, const namespacet &)
+  {
+    return true;
+  }
+
+  explicit constant_propagator_ait(
+    const goto_functionst &goto_functions,
+    should_track_valuet should_track_value = track_all_values):
+    dirty(goto_functions),
+    should_track_value(should_track_value)
+  {
+  }
+
+  explicit constant_propagator_ait(
+    const goto_functiont &goto_function,
+    should_track_valuet should_track_value = track_all_values):
+    dirty(goto_function),
+    should_track_value(should_track_value)
   {
   }
 
   constant_propagator_ait(
-    goto_modelt &goto_model):dirty(goto_model.goto_functions)
+    goto_modelt &goto_model,
+    should_track_valuet should_track_value = track_all_values):
+    dirty(goto_model.goto_functions),
+    should_track_value(should_track_value)
   {
     const namespacet ns(goto_model.symbol_table);
     operator()(goto_model.goto_functions, ns);
@@ -175,7 +197,10 @@ public:
 
   constant_propagator_ait(
     goto_functionst::goto_functiont &goto_function,
-    const namespacet &ns):dirty(goto_function)
+    const namespacet &ns,
+    should_track_valuet should_track_value = track_all_values):
+    dirty(goto_function),
+    should_track_value(should_track_value)
   {
     operator()(goto_function, ns);
     replace(goto_function, ns);
@@ -197,6 +222,8 @@ protected:
   void replace_types_rec(
     const replace_symbolt &replace_const,
     exprt &expr);
+
+  should_track_valuet should_track_value;
 };
 
 #endif // CPROVER_ANALYSES_CONSTANT_PROPAGATOR_H

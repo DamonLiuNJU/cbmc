@@ -31,22 +31,21 @@ Author: CM Wintersteiger, 2006
 
 #include <json/json_parser.h>
 
-#include <util/expr.h>
-#include <util/c_types.h>
 #include <util/arith_tools.h>
+#include <util/c_types.h>
+#include <util/config.h>
+#include <util/expr.h>
+#include <util/get_base_name.h>
 #include <util/invariant.h>
+#include <util/prefix.h>
+#include <util/replace_symbol.h>
+#include <util/run.h>
+#include <util/suffix.h>
 #include <util/tempdir.h>
 #include <util/tempfile.h>
-#include <util/config.h>
-#include <util/prefix.h>
-#include <util/suffix.h>
-#include <util/get_base_name.h>
-#include <util/run.h>
-#include <util/replace_symbol.h>
+#include <util/version.h>
 
 #include <goto-programs/read_goto_binary.h>
-
-#include <cbmc/version.h>
 
 #include "hybrid_binary.h"
 #include "linker_script_merge.h"
@@ -61,6 +60,9 @@ static std::string compiler_name(
   if(base_name=="bcc" ||
      base_name.find("goto-bcc")!=std::string::npos)
     return "bcc";
+
+  if(base_name=="goto-clang")
+    return "clang";
 
   std::string::size_type pos=base_name.find("goto-gcc");
 
@@ -346,15 +348,16 @@ int gcc_modet::doit()
     // Compilation continues, don't exit!
 
     if(act_as_bcc)
-      std::cout << "bcc: version " << gcc_version
-                << " (goto-cc " CBMC_VERSION ")\n";
+      std::cout << "bcc: version " << gcc_version << " (goto-cc "
+                << CBMC_VERSION << ")\n";
     else
     {
       if(gcc_version.flavor == gcc_versiont::flavort::CLANG)
-        std::cout << "clang version " << gcc_version
-                  << " (goto-cc " CBMC_VERSION ")\n";
+        std::cout << "clang version " << gcc_version << " (goto-cc "
+                  << CBMC_VERSION << ")\n";
       else
-        std::cout << "gcc (goto-cc " CBMC_VERSION ") " << gcc_version << '\n';
+        std::cout << "gcc (goto-cc " << CBMC_VERSION << ") " << gcc_version
+                  << '\n';
     }
   }
 
@@ -372,7 +375,7 @@ int gcc_modet::doit()
     std::cout
       << '\n'
       << "Copyright (C) 2006-2018 Daniel Kroening, Christoph Wintersteiger\n"
-      << "CBMC version: " CBMC_VERSION << '\n'
+      << "CBMC version: " << CBMC_VERSION << '\n'
       << "Architecture: " << config.this_architecture() << '\n'
       << "OS: " << config.this_operating_system() << '\n';
 
@@ -530,11 +533,12 @@ int gcc_modet::doit()
      gcc_version.is_at_least(7))
     config.ansi_c.ts_18661_3_Floatn_types=true;
 
-  int gcc_float128_minor_version = config.ansi_c.arch == "x86_64" ? 3 : 5;
+  const auto gcc_float128_minor_version =
+    config.ansi_c.arch == "x86_64" ? 3u : 5u;
 
   config.ansi_c.Float128_type =
     gcc_version.flavor == gcc_versiont::flavort::GCC &&
-    gcc_version.is_at_least(4, gcc_float128_minor_version);
+    gcc_version.is_at_least(4u, gcc_float128_minor_version);
 
   // -fshort-double makes double the same as float
   if(cmdline.isset("fshort-double"))
@@ -563,10 +567,13 @@ int gcc_modet::doit()
     config.ansi_c.mode=configt::ansi_ct::flavourt::VISUAL_STUDIO;
     debug() << "Enabling Visual Studio syntax" << eom;
   }
-  else if(config.this_operating_system()=="macos")
-    config.ansi_c.mode=configt::ansi_ct::flavourt::APPLE;
   else
-    config.ansi_c.mode=configt::ansi_ct::flavourt::GCC;
+  {
+    if(gcc_version.flavor == gcc_versiont::flavort::CLANG)
+      config.ansi_c.mode = configt::ansi_ct::flavourt::CLANG;
+    else
+      config.ansi_c.mode = configt::ansi_ct::flavourt::GCC;
+  }
 
   if(compiler.mode==compilet::ASSEMBLE_ONLY)
     compiler.object_file_extension="s";
@@ -722,6 +729,14 @@ int gcc_modet::doit()
     }
   }
 
+  if(
+    cmdline.isset('o') && cmdline.isset('c') &&
+    compiler.source_files.size() >= 2)
+  {
+    error() << "cannot specify -o with -c with multiple files" << eom;
+    return 1; // to match gcc's behaviour
+  }
+
   // Revert to gcc in case there is no source to compile
   // and no binary to link.
 
@@ -820,7 +835,7 @@ int gcc_modet::preprocess(
     debug() << " " << new_argv[i];
   debug() << eom;
 
-  return run(new_argv[0], new_argv, cmdline.stdin_file, stdout_file);
+  return run(new_argv[0], new_argv, cmdline.stdin_file, stdout_file, "");
 }
 
 int gcc_modet::run_gcc(const compilet &compiler)
@@ -863,7 +878,7 @@ int gcc_modet::run_gcc(const compilet &compiler)
     debug() << " " << new_argv[i];
   debug() << eom;
 
-  return run(new_argv[0], new_argv, cmdline.stdin_file);
+  return run(new_argv[0], new_argv, cmdline.stdin_file, "", "");
 }
 
 int gcc_modet::gcc_hybrid_binary(compilet &compiler)
@@ -914,7 +929,7 @@ int gcc_modet::gcc_hybrid_binary(compilet &compiler)
   if(output_files.empty() ||
      (output_files.size()==1 &&
       output_files.front()=="/dev/null"))
-    return EX_OK;
+    return run_gcc(compiler);
 
   debug() << "Running " << native_tool_name
           << " to generate hybrid binary" << eom;

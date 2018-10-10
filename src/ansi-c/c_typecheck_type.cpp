@@ -24,6 +24,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include "gcc_types.h"
 #include "padding.h"
 #include "type2name.h"
+#include "typedef_type.h"
 
 void c_typecheck_baset::typecheck_type(typet &type)
 {
@@ -88,8 +89,13 @@ void c_typecheck_baset::typecheck_type(typet &type)
     typecheck_c_bit_field_type(to_c_bit_field_type(type));
   else if(type.id()==ID_typeof)
     typecheck_typeof_type(type);
-  else if(type.id()==ID_symbol)
-    typecheck_symbol_type(type);
+  else if(type.id() == ID_typedef_type)
+    typecheck_typedef_type(type);
+  else if(type.id() == ID_struct_tag ||
+          type.id() == ID_union_tag)
+  {
+    // nothing to do, these stay as is
+  }
   else if(type.id()==ID_vector)
     typecheck_vector_type(to_vector_type(type));
   else if(type.id()==ID_custom_unsignedbv ||
@@ -486,10 +492,30 @@ void c_typecheck_baset::typecheck_array_type(array_typet &type)
   typecheck_type(type.subtype());
 
   // we don't allow void as subtype
-  if(follow(type.subtype()).id()==ID_empty)
+  if(type.subtype().id() == ID_empty)
   {
     error().source_location=type.source_location();
     error() << "array of voids" << eom;
+    throw 0;
+  }
+
+  // we don't allow incomplete structs or unions as subtype
+  if(
+    follow(type.subtype()).id() == ID_incomplete_struct ||
+    follow(type.subtype()).id() == ID_incomplete_union)
+  {
+    // ISO/IEC 9899 6.7.5.2
+    error().source_location = type.source_location();
+    error() << "array has incomplete element type" << eom;
+    throw 0;
+  }
+
+  // we don't allow functions as subtype
+  if(type.subtype().id() == ID_code)
+  {
+    // ISO/IEC 9899 6.7.5.2
+    error().source_location = type.source_location();
+    error() << "array of function element type" << eom;
     throw 0;
   }
 
@@ -696,6 +722,16 @@ void c_typecheck_baset::typecheck_compound_type(struct_union_typet &type)
 
   bool have_body=type.find(ID_components).is_not_nil();
 
+  c_qualifierst original_qualifiers(type);
+
+  // the type symbol, which may get re-used in other declarations, must not
+  // carry any qualifiers (other than transparent_union, which isn't really a
+  // qualifier)
+  c_qualifierst remove_qualifiers;
+  remove_qualifiers.is_transparent_union =
+    original_qualifiers.is_transparent_union;
+  remove_qualifiers.write(type);
+
   if(type.find(ID_tag).is_nil())
   {
     // Anonymous? Must come with body.
@@ -792,11 +828,18 @@ void c_typecheck_baset::typecheck_compound_type(struct_union_typet &type)
     }
   }
 
-  symbol_typet symbol_type(identifier);
-  symbol_type.add_source_location()=type.source_location();
+  typet tag_type;
 
-  c_qualifierst original_qualifiers(type);
-  type.swap(symbol_type);
+  if(type.id() == ID_union || type.id() == ID_incomplete_union)
+    tag_type = union_tag_typet(identifier);
+  else if(type.id() == ID_struct || type.id() == ID_incomplete_struct)
+    tag_type = struct_tag_typet(identifier);
+  else
+    UNREACHABLE;
+
+  tag_type.add_source_location() = type.source_location();
+  type.swap(tag_type);
+
   original_qualifiers.write(type);
 }
 
@@ -834,13 +877,17 @@ void c_typecheck_baset::typecheck_compound_body(
 
       for(const auto &declarator : declaration.declarators())
       {
-        struct_union_typet::componentt new_component;
+        struct_union_typet::componentt new_component(
+          declarator.get_base_name(), declaration.full_type(declarator));
 
-        new_component.add_source_location()=
-          declarator.source_location();
-        new_component.set(ID_name, declarator.get_base_name());
-        new_component.set(ID_pretty_name, declarator.get_base_name());
-        new_component.type()=declaration.full_type(declarator);
+        // There may be a declarator, which we use as location for
+        // the component. Otherwise, use location of the declaration.
+        const source_locationt source_location =
+          declarator.get_name().empty() ? declaration.source_location()
+                                        : declarator.source_location();
+
+        new_component.add_source_location() = source_location;
+        new_component.set_pretty_name(declarator.get_base_name());
 
         typecheck_type(new_component.type());
 
@@ -848,7 +895,7 @@ void c_typecheck_baset::typecheck_compound_body(
            (new_component.type().id()!=ID_array ||
             !to_array_type(new_component.type()).is_incomplete()))
         {
-          error().source_location=new_component.type().source_location();
+          error().source_location = source_location;
           error() << "incomplete type not permitted here" << eom;
           throw 0;
         }
@@ -875,15 +922,12 @@ void c_typecheck_baset::typecheck_compound_body(
   {
     std::unordered_set<irep_idt> members;
 
-    for(struct_union_typet::componentst::iterator
-        it=components.begin();
-        it!=components.end();
-        it++)
+    for(const auto &c : components)
     {
-      if(!members.insert(it->get_name()).second)
+      if(!members.insert(c.get_name()).second)
       {
-        error().source_location=it->source_location();
-        error() << "duplicate member '" << it->get_name() << '\'' << eom;
+        error().source_location = c.source_location();
+        error() << "duplicate member '" << c.get_name() << '\'' << eom;
         throw 0;
       }
     }
@@ -1368,7 +1412,7 @@ void c_typecheck_baset::typecheck_c_bit_field_type(c_bit_field_typet &type)
       throw 0;
     }
 
-    sub_width=c_enum_type.subtype().get_int(ID_width);
+    sub_width = c_enum_type.subtype().get_size_t(ID_width);
   }
   else
   {
@@ -1425,48 +1469,43 @@ void c_typecheck_baset::typecheck_typeof_type(typet &type)
   c_qualifiers.write(type);
 }
 
-void c_typecheck_baset::typecheck_symbol_type(typet &type)
+void c_typecheck_baset::typecheck_typedef_type(typet &type)
 {
-  const irep_idt &identifier=
-    to_symbol_type(type).get_identifier();
+  const irep_idt &identifier = to_typedef_type(type).get_identifier();
 
-  symbol_tablet::symbolst::const_iterator s_it=
+  symbol_tablet::symbolst::const_iterator s_it =
     symbol_table.symbols.find(identifier);
 
-  if(s_it==symbol_table.symbols.end())
+  if(s_it == symbol_table.symbols.end())
   {
-    error().source_location=type.source_location();
-    error() << "type symbol `" << identifier << "' not found"
-            << eom;
+    error().source_location = type.source_location();
+    error() << "typedef symbol `" << identifier << "' not found" << eom;
     throw 0;
   }
 
-  const symbolt &symbol=s_it->second;
+  const symbolt &symbol = s_it->second;
 
   if(!symbol.is_type)
   {
-    error().source_location=type.source_location();
-    error() << "expected type symbol" << eom;
+    error().source_location = type.source_location();
+    error() << "expected type symbol for typedef" << eom;
     throw 0;
   }
 
-  if(symbol.is_macro)
-  {
-    // overwrite, but preserve (add) any qualifiers and other flags
+  // overwrite, but preserve (add) any qualifiers and other flags
 
-    c_qualifierst c_qualifiers(type);
-    bool is_packed=type.get_bool(ID_C_packed);
-    irept alignment=type.find(ID_C_alignment);
+  c_qualifierst c_qualifiers(type);
+  bool is_packed = type.get_bool(ID_C_packed);
+  irept alignment = type.find(ID_C_alignment);
 
-    c_qualifiers+=c_qualifierst(symbol.type);
-    type=symbol.type;
-    c_qualifiers.write(type);
+  c_qualifiers += c_qualifierst(symbol.type);
+  type = symbol.type;
+  c_qualifiers.write(type);
 
-    if(is_packed)
-      type.set(ID_C_packed, true);
-    if(alignment.is_not_nil())
-      type.set(ID_C_alignment, alignment);
-  }
+  if(is_packed)
+    type.set(ID_C_packed, true);
+  if(alignment.is_not_nil())
+    type.set(ID_C_alignment, alignment);
 
   // CPROVER extensions
   if(symbol.base_name=="__CPROVER_rational")

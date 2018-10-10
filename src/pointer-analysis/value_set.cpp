@@ -283,18 +283,18 @@ bool value_sett::eval_pointer_offset(
       else
       {
         const exprt &object=object_numbering[it->first];
-        mp_integer ptr_offset=compute_pointer_offset(object, ns);
+        auto ptr_offset = compute_pointer_offset(object, ns);
 
-        if(ptr_offset<0)
+        if(!ptr_offset.has_value())
           return false;
 
-        ptr_offset += *it->second;
+        *ptr_offset += *it->second;
 
-        if(mod && ptr_offset!=previous_offset)
+        if(mod && *ptr_offset != previous_offset)
           return false;
 
-        new_expr=from_integer(ptr_offset, expr.type());
-        previous_offset=ptr_offset;
+        new_expr = from_integer(*ptr_offset, expr.type());
+        previous_offset = *ptr_offset;
         mod=true;
       }
 
@@ -342,6 +342,30 @@ void value_sett::get_value_set(
     simplify(tmp, ns);
 
   get_value_set_rec(tmp, dest, "", tmp.type(), ns);
+}
+
+/// Check if 'suffix' starts with 'field'.
+/// Suffix is delimited by periods and '[]' (array access) tokens, so we're
+/// looking for ".field($|[]|.)"
+static bool suffix_starts_with_field(
+  const std::string &suffix, const std::string &field)
+{
+  return
+    !suffix.empty() &&
+    suffix[0] == '.' &&
+    suffix.compare(1, field.length(), field) == 0 &&
+    (suffix.length() == field.length() + 1 ||
+     suffix[field.length() + 1] == '.' ||
+     suffix[field.length() + 1] == '[');
+}
+
+static std::string strip_first_field_from_suffix(
+  const std::string &suffix, const std::string &field)
+{
+  INVARIANT(
+    suffix_starts_with_field(suffix, field),
+    "suffix should start with " + field);
+  return suffix.substr(field.length() + 1);
 }
 
 void value_sett::get_value_set_rec(
@@ -416,11 +440,12 @@ void value_sett::get_value_set_rec(
         const struct_union_typet &struct_union_type=
           to_struct_union_type(expr_type);
 
-        const std::string first_component_name=
-          struct_union_type.components().front().get_string(ID_name);
+        const irep_idt &first_component_name =
+          struct_union_type.components().front().get_name();
 
-        v_it=values.find(
-            id2string(identifier)+"."+first_component_name+suffix);
+        v_it = values.find(
+          id2string(identifier) + "." + id2string(first_component_name) +
+          suffix);
       }
 
       // not found? try without suffix
@@ -598,15 +623,15 @@ void value_sett::get_value_set_rec(
         if(pointer_sub_type.id()==ID_empty)
           pointer_sub_type=char_type();
 
-        mp_integer size=pointer_offset_size(pointer_sub_type, ns);
+        auto size = pointer_offset_size(pointer_sub_type, ns);
 
-        if(size<=0)
+        if(!size.has_value() || (*size) == 0)
         {
           i_is_set=false;
         }
         else
         {
-          i*=size;
+          i *= *size;
 
           if(expr.id()==ID_minus)
             i.negate();
@@ -711,72 +736,113 @@ void value_sett::get_value_set_rec(
   }
   else if(expr.id()==ID_struct)
   {
+    const auto &struct_components = to_struct_type(expr_type).components();
+    INVARIANT(
+      struct_components.size() == expr.operands().size(),
+      "struct expression should have an operand per component");
+    auto component_iter = struct_components.begin();
+    bool found_component = false;
+
     // a struct constructor, which may contain addresses
+
     forall_operands(it, expr)
-      get_value_set_rec(*it, dest, suffix, original_type, ns);
+    {
+      const std::string &component_name =
+        id2string(component_iter->get_name());
+      if(suffix_starts_with_field(suffix, component_name))
+      {
+        std::string remaining_suffix =
+          strip_first_field_from_suffix(suffix, component_name);
+        get_value_set_rec(*it, dest, remaining_suffix, original_type, ns);
+        found_component = true;
+      }
+      ++component_iter;
+    }
+
+    if(!found_component)
+    {
+      // Struct field doesn't appear as expected -- this has probably been
+      // cast from an incompatible type. Conservatively assume all fields may
+      // be of interest.
+      forall_operands(it, expr)
+        get_value_set_rec(*it, dest, suffix, original_type, ns);
+    }
   }
   else if(expr.id()==ID_with)
   {
-    assert(expr.operands().size()==3);
+    const with_exprt &with_expr = to_with_expr(expr);
 
-    // this is the array/struct
-    object_mapt tmp_map0;
-    get_value_set_rec(expr.op0(), tmp_map0, suffix, original_type, ns);
-
-    // this is the update value -- note NO SUFFIX
-    object_mapt tmp_map2;
-    get_value_set_rec(expr.op2(), tmp_map2, "", original_type, ns);
-
-    if(expr_type.id()==ID_struct)
+    // If the suffix is empty we're looking for the whole struct:
+    // default to combining both options as below.
+    if(expr_type.id() == ID_struct && !suffix.empty())
     {
-      #if 0
-      const object_map_dt &object_map0=tmp_map0.read();
-      irep_idt component_name=expr.op1().get(ID_component_name);
-
-      bool insert=true;
-
-      for(object_map_dt::const_iterator
-          it=object_map0.begin();
-          it!=object_map0.end();
-          it++)
+      irep_idt component_name = with_expr.where().get(ID_component_name);
+      if(suffix_starts_with_field(suffix, id2string(component_name)))
       {
-        const exprt &e=to_expr(it);
-
-        if(e.id()==ID_member &&
-           e.get(ID_component_name)==component_name)
-        {
-          if(insert)
-          {
-            dest.write().insert(tmp_map2.read().begin(), tmp_map2.read().end());
-            insert=false;
-          }
-        }
-        else
-          dest.write().insert(*it);
+        // Looking for the member overwritten by this WITH expression
+        std::string remaining_suffix =
+          strip_first_field_from_suffix(suffix, id2string(component_name));
+        get_value_set_rec(
+          with_expr.new_value(), dest, remaining_suffix, original_type, ns);
       }
-      #else
-      // Should be more precise! We only want "suffix"
-      make_union(dest, tmp_map0);
-      make_union(dest, tmp_map2);
-      #endif
+      else if(to_struct_type(expr_type).has_component(component_name))
+      {
+        // Looking for a non-overwritten member, look through this expression
+        get_value_set_rec(with_expr.old(), dest, suffix, original_type, ns);
+      }
+      else
+      {
+        // Member we're looking for is not defined in this struct -- this
+        // must be a reinterpret cast of some sort. Default to conservatively
+        // assuming either operand might be involved.
+        get_value_set_rec(expr.op0(), dest, suffix, original_type, ns);
+        get_value_set_rec(expr.op2(), dest, "", original_type, ns);
+      }
+    }
+    else if(expr_type.id() == ID_array && !suffix.empty())
+    {
+      std::string new_value_suffix;
+      if(has_prefix(suffix, "[]"))
+        new_value_suffix = suffix.substr(2);
+
+      // Otherwise use a blank suffix on the assumption anything involved with
+      // the new value might be interesting.
+
+      get_value_set_rec(with_expr.old(), dest, suffix, original_type, ns);
+      get_value_set_rec(
+        with_expr.new_value(), dest, new_value_suffix, original_type, ns);
     }
     else
     {
-      make_union(dest, tmp_map0);
-      make_union(dest, tmp_map2);
+      // Something else-- the suffixes used here are a rough guess at best,
+      // so this is imprecise.
+      get_value_set_rec(expr.op0(), dest, suffix, original_type, ns);
+      get_value_set_rec(expr.op2(), dest, "", original_type, ns);
     }
   }
   else if(expr.id()==ID_array)
   {
     // an array constructor, possibly containing addresses
+    std::string new_suffix = suffix;
+    if(has_prefix(suffix, "[]"))
+      new_suffix = suffix.substr(2);
+    // Otherwise we're probably reinterpreting some other type -- try persisting
+    // with the current suffix for want of a better idea.
+
     forall_operands(it, expr)
-      get_value_set_rec(*it, dest, suffix, original_type, ns);
+      get_value_set_rec(*it, dest, new_suffix, original_type, ns);
   }
   else if(expr.id()==ID_array_of)
   {
     // an array constructor, possibly containing an address
+    std::string new_suffix = suffix;
+    if(has_prefix(suffix, "[]"))
+      new_suffix = suffix.substr(2);
+    // Otherwise we're probably reinterpreting some other type -- try persisting
+    // with the current suffix for want of a better idea.
+
     assert(expr.operands().size()==1);
-    get_value_set_rec(expr.op0(), dest, suffix, original_type, ns);
+    get_value_set_rec(expr.op0(), dest, new_suffix, original_type, ns);
   }
   else if(expr.id()==ID_dynamic_object)
   {
@@ -820,38 +886,34 @@ void value_sett::get_value_set_rec(
     {
       const struct_typet &struct_type=to_struct_type(op0_type);
 
-      for(struct_union_typet::componentst::const_iterator
-          c_it=struct_type.components().begin();
-          !found && c_it!=struct_type.components().end();
-          c_it++)
+      for(const auto &c : struct_type.components())
       {
-        const irep_idt &name=c_it->get_name();
+        const irep_idt &name = c.get_name();
 
-        mp_integer comp_offset=member_offset(struct_type, name, ns);
+        auto comp_offset = member_offset(struct_type, name, ns);
 
-        if(comp_offset>op1_offset)
+        if(!comp_offset.has_value())
+          continue;
+        else if(*comp_offset > op1_offset)
           break;
-        else if(comp_offset!=op1_offset)
+        else if(*comp_offset != op1_offset)
           continue;
 
         found=true;
 
-        member_exprt member(expr.op0(), *c_it);
+        member_exprt member(expr.op0(), c);
         get_value_set_rec(member, dest, suffix, original_type, ns);
+        break;
       }
     }
 
     if(op0_type.id()==ID_union)
     {
-      const union_typet &union_type=to_union_type(op0_type);
-
       // just collect them all
-      for(union_typet::componentst::const_iterator
-          c_it=union_type.components().begin();
-          c_it!=union_type.components().end(); c_it++)
+      for(const auto &c : to_union_type(op0_type).components())
       {
-        const irep_idt &name=c_it->get_name();
-        member_exprt member(expr.op0(), name, c_it->type());
+        const irep_idt &name = c.get_name();
+        member_exprt member(expr.op0(), name, c.type());
         get_value_set_rec(member, dest, suffix, original_type, ns);
       }
     }
@@ -1006,12 +1068,12 @@ void value_sett::get_reference_set_rec(
         }
         else if(!to_integer(offset, i) && o)
         {
-          mp_integer size=pointer_offset_size(array_type.subtype(), ns);
+          auto size = pointer_offset_size(array_type.subtype(), ns);
 
-          if(size<=0)
+          if(!size.has_value() || *size == 0)
             o.reset();
           else
-            *o = i * size;
+            *o = i * (*size);
         }
         else
           o.reset();
@@ -1106,20 +1168,14 @@ void value_sett::assign(
   if(type.id()==ID_struct ||
      type.id()==ID_union)
   {
-    const struct_union_typet &struct_union_type=
-      to_struct_union_type(type);
-
-    for(struct_union_typet::componentst::const_iterator
-        c_it=struct_union_type.components().begin();
-        c_it!=struct_union_type.components().end();
-        c_it++)
+    for(const auto &c : to_struct_union_type(type).components())
     {
-      const typet &subtype=c_it->type();
-      const irep_idt &name=c_it->get(ID_name);
+      const typet &subtype = c.type();
+      const irep_idt &name = c.get_name();
 
       // ignore methods and padding
-      if(subtype.id()==ID_code ||
-         c_it->get_is_padding()) continue;
+      if(subtype.id() == ID_code || c.get_is_padding())
+        continue;
 
       member_exprt lhs_member(lhs, name, subtype);
 
@@ -1139,7 +1195,7 @@ void value_sett::assign(
 
         rhs_member=make_member(rhs, name, ns);
 
-        assign(lhs_member, rhs_member, ns, is_simplified, add_to_sets);
+        assign(lhs_member, rhs_member, ns, false, add_to_sets);
       }
     }
   }
@@ -1504,8 +1560,7 @@ void value_sett::apply_code_rec(
     // shouldn't be here
     UNREACHABLE;
   }
-  else if(statement==ID_assign ||
-          statement==ID_init)
+  else if(statement==ID_assign)
   {
     if(code.operands().size()!=2)
       throw "assignment expected to have two operands";
@@ -1692,7 +1747,7 @@ exprt value_sett::make_member(
   }
 
   // give up
-  typet subtype=struct_union_type.component_type(component_name);
+  const typet &subtype = struct_union_type.component_type(component_name);
   member_exprt member_expr(src, component_name, subtype);
 
   return member_expr;

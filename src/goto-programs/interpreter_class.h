@@ -273,7 +273,7 @@ protected:
   dynamic_typest dynamic_types;
   int num_dynamic_objects;
   mp_integer stack_depth;
-  int thread_id;
+  unsigned thread_id;
 
   bool evaluate_boolean(const exprt &expr)
   {
@@ -306,6 +306,8 @@ protected:
 
   void initialize(bool init);
   void show_state();
+
+  friend class interpreter_testt;
 };
 
 #endif // CPROVER_GOTO_PROGRAMS_INTERPRETER_CLASS_H

@@ -52,7 +52,6 @@ protected:
     goto_functionst::function_mapt::iterator f_it);
 
   void undo_function_calls(
-    goto_functionst &goto_functions,
     goto_programt &goto_program);
 
   symbol_exprt get_or_create_return_value_symbol(const irep_idt &function_id);
@@ -190,9 +189,16 @@ void remove_returnst::do_function_calls(
           exprt rhs;
 
           if(!is_stub)
-            rhs=return_value;
+          {
+            // The return type in the definition of the function may differ
+            // from the return type in the declaration.  We therefore do a
+            // cast.
+            rhs = typecast_exprt::conditional_cast(
+              return_value, function_call.lhs().type());
+          }
           else
-            rhs=side_effect_expr_nondett(function_call.lhs().type());
+            rhs = side_effect_expr_nondett(
+              function_call.lhs().type(), i_it->source_location);
 
           goto_programt::targett t_a=goto_program.insert_after(i_it);
           t_a->make_assignment();
@@ -208,7 +214,7 @@ void remove_returnst::do_function_calls(
             goto_programt::targett t_d=goto_program.insert_after(t_a);
             t_d->make_dead();
             t_d->source_location=i_it->source_location;
-            t_d->code=code_deadt(rhs);
+            t_d->code = code_deadt(return_value);
             t_d->function=i_it->function;
           }
         }
@@ -366,7 +372,6 @@ bool remove_returnst::restore_returns(
 
 /// turns f(...); lhs=f#return_value; into lhs=f(...)
 void remove_returnst::undo_function_calls(
-  goto_functionst &goto_functions,
   goto_programt &goto_program)
 {
   namespacet ns(symbol_table);
@@ -436,7 +441,7 @@ void remove_returnst::restore(goto_functionst &goto_functions)
   if(!unmodified)
   {
     Forall_goto_functions(it, goto_functions)
-      undo_function_calls(goto_functions, it->second.body);
+      undo_function_calls(it->second.body);
   }
 }
 

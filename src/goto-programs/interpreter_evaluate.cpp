@@ -14,6 +14,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/fixedbv.h>
 #include <util/ieee_float.h>
 #include <util/pointer_offset_size.h>
+#include <util/simplify_expr.h>
 #include <util/string_container.h>
 
 #include <langapi/language_util.h>
@@ -160,18 +161,18 @@ bool interpretert::byte_offset_to_memory_offset(
 
     for(const auto &comp : st.components())
     {
-      const mp_integer comp_offset = member_offset(st, comp.get_name(), ns);
+      const auto comp_offset = member_offset(st, comp.get_name(), ns);
 
-      const mp_integer component_byte_size =
-        pointer_offset_size(comp.type(), ns);
-      if(component_byte_size<0)
+      const auto component_byte_size = pointer_offset_size(comp.type(), ns);
+
+      if(!comp_offset.has_value() && !component_byte_size.has_value())
         return true;
 
-      if(comp_offset + component_byte_size > offset)
+      if(*comp_offset + *component_byte_size > offset)
       {
         mp_integer subtype_result;
-        bool ret=byte_offset_to_memory_offset(
-          comp.type(), offset - comp_offset, subtype_result);
+        bool ret = byte_offset_to_memory_offset(
+          comp.type(), offset - *comp_offset, subtype_result);
         result=previous_member_offsets+subtype_result;
         return ret;
       }
@@ -189,25 +190,30 @@ bool interpretert::byte_offset_to_memory_offset(
   else if(source_type.id()==ID_array)
   {
     const auto &at=to_array_type(source_type);
+
     mp_vectort array_size_vec;
     evaluate(at.size(), array_size_vec);
+
     if(array_size_vec.size()!=1)
       return true;
+
     mp_integer array_size=array_size_vec[0];
-    mp_integer elem_size_bytes=pointer_offset_size(at.subtype(), ns);
-    if(elem_size_bytes<=0)
+    auto elem_size_bytes = pointer_offset_size(at.subtype(), ns);
+    if(!elem_size_bytes.has_value() || *elem_size_bytes == 0)
       return true;
+
     mp_integer elem_size_leaves;
     if(count_type_leaves(at.subtype(), elem_size_leaves))
       return true;
-    mp_integer this_idx=offset/elem_size_bytes;
+
+    mp_integer this_idx = offset / (*elem_size_bytes);
     if(this_idx>=array_size_vec[0])
       return true;
+
     mp_integer subtype_result;
-    bool ret=byte_offset_to_memory_offset(
-      at.subtype(),
-      offset%elem_size_bytes,
-      subtype_result);
+    bool ret = byte_offset_to_memory_offset(
+      at.subtype(), offset % (*elem_size_bytes), subtype_result);
+
     result=subtype_result+(elem_size_leaves*this_idx);
     return ret;
   }
@@ -245,7 +251,10 @@ bool interpretert::memory_offset_to_byte_offset(
         mp_integer subtype_result;
         bool ret=memory_offset_to_byte_offset(
           comp.type(), cell_offset, subtype_result);
-        result = member_offset(st, comp.get_name(), ns) + subtype_result;
+        const auto member_offset_result =
+          member_offset(st, comp.get_name(), ns);
+        CHECK_RETURN(member_offset_result.has_value());
+        result = member_offset_result.value() + subtype_result;
         return ret;
       }
       else
@@ -259,26 +268,31 @@ bool interpretert::memory_offset_to_byte_offset(
   else if(source_type.id()==ID_array)
   {
     const auto &at=to_array_type(source_type);
+
     mp_vectort array_size_vec;
     evaluate(at.size(), array_size_vec);
     if(array_size_vec.size()!=1)
       return true;
-    mp_integer elem_size=pointer_offset_size(at.subtype(), ns);
-    if(elem_size==-1)
+
+    auto elem_size = pointer_offset_size(at.subtype(), ns);
+    if(!elem_size.has_value())
       return true;
+
     mp_integer elem_count;
     if(count_type_leaves(at.subtype(), elem_count))
       return true;
+
     mp_integer this_idx=full_cell_offset/elem_count;
     if(this_idx>=array_size_vec[0])
       return true;
+
     mp_integer subtype_result;
     bool ret=
       memory_offset_to_byte_offset(
         at.subtype(),
         full_cell_offset%elem_count,
         subtype_result);
-    result=subtype_result+(elem_size*this_idx);
+    result = subtype_result + ((*elem_size) * this_idx);
     return ret;
   }
   else
@@ -329,8 +343,7 @@ void interpretert::evaluate(
 
       dest.clear();
     }
-    else if((expr.type().id()==ID_pointer)
-         || (expr.type().id()==ID_address_of))
+    else if(expr.type().id() == ID_pointer)
     {
       mp_integer i=0;
       if(expr.has_operands() && expr.op0().id()==ID_address_of)
@@ -338,7 +351,15 @@ void interpretert::evaluate(
         evaluate(expr.op0(), dest);
         return;
       }
-      if(expr.has_operands() && !to_integer(expr.op0(), i))
+      else if(expr.has_operands() && !to_integer(expr.op0(), i))
+      {
+        dest.push_back(i);
+        return;
+      }
+      // check if expression is constant null pointer without operands
+      else if(
+        !expr.has_operands() && !to_integer(to_constant_expr(expr), i) &&
+        i.is_zero())
       {
         dest.push_back(i);
         return;
@@ -361,7 +382,7 @@ void interpretert::evaluate(
     else if(expr.type().id()==ID_c_bool)
     {
       const irep_idt &value=to_constant_expr(expr).get_value();
-      dest.push_back(binary2integer(id2string(value), false));
+      dest.push_back(bv2integer(id2string(value), false));
       return;
     }
     else if(expr.type().id()==ID_bool)
@@ -507,7 +528,9 @@ void interpretert::evaluate(
     evaluate(expr.op0(), tmp);
     if(tmp.size()==1)
     {
-      dest.push_back(bitwise_neg(tmp.front()));
+      const auto width = to_bitvector_type(expr.op0().type()).get_width();
+      const mp_integer mask = power(2, width) - 1;
+      dest.push_back(bitwise_xor(tmp.front(), mask));
       return;
     }
   }
@@ -894,52 +917,38 @@ void interpretert::evaluate(
     mp_integer address=evaluate_address(
       expr,
       true); // fail quietly
-    if(address.is_zero() && expr.id()==ID_index)
+    if(address.is_zero())
     {
-      // Try reading from a constant array:
-      mp_vectort idx;
-      evaluate(expr.op1(), idx);
-      if(idx.size()==1)
+      exprt simplified;
+      // In case of being an indexed access, try to evaluate the index, then
+      // simplify.
+      if(expr.id() == ID_index)
       {
-        mp_integer read_from_index=idx[0];
-        if(expr.op0().id()==ID_array)
+        exprt evaluated_index = expr;
+        mp_vectort idx;
+        evaluate(expr.op1(), idx);
+        if(idx.size() == 1)
         {
-          const auto &ops=expr.op0().operands();
-          DATA_INVARIANT(read_from_index.is_long(), "index is too large");
-          if(read_from_index>=0 && read_from_index<ops.size())
-          {
-            evaluate(ops[read_from_index.to_long()], dest);
-            if(dest.size()!=0)
-              return;
-          }
+          evaluated_index.op1() =
+            constant_exprt(integer2string(idx[0]), expr.op1().type());
         }
-        else if(expr.op0().id() == ID_array_list)
-        {
-          // This sort of construct comes from boolbv_get, but doesn't seem
-          // to have an exprt yet. Its operands are a list of key-value pairs.
-          const auto &ops=expr.op0().operands();
-          DATA_INVARIANT(
-            ops.size()%2==0,
-            "array-list has odd number of operands");
-          for(size_t listidx=0; listidx!=ops.size(); listidx+=2)
-          {
-            mp_vectort elem_idx;
-            evaluate(ops[listidx], elem_idx);
-            CHECK_RETURN(elem_idx.size()==1);
-            if(elem_idx[0]==read_from_index)
-            {
-              evaluate(ops[listidx+1], dest);
-              if(dest.size()!=0)
-                return;
-              else
-                break;
-            }
-          }
-          // If we fall out the end of this loop then the constant array-list
-          // didn't define an element matching the index we're looking for.
-        }
+        simplified = simplify_expr(evaluated_index, ns);
       }
-      evaluate_address(expr); // Evaluate again to print error message.
+      else
+      {
+        // Try reading from a constant -- simplify_expr has all the relevant
+        // cases (index-of-constant-array, member-of-constant-struct and so on)
+        // Note we complain of a problem even if simplify did *something* but
+        // still left us with an unresolved index, member, etc.
+        simplified = simplify_expr(expr, ns);
+      }
+      if(simplified.id() == expr.id())
+        evaluate_address(expr); // Evaluate again to print error message.
+      else
+      {
+        evaluate(simplified, dest);
+        return;
+      }
     }
     else if(!address.is_zero())
     {
@@ -974,16 +983,16 @@ void interpretert::evaluate(
       }
       else if(expr.type().id()==ID_signedbv)
       {
-        const std::string s=
-          integer2binary(value, to_signedbv_type(expr.type()).get_width());
-        dest.push_back(binary2integer(s, true));
+        const std::string s =
+          integer2bv(value, to_signedbv_type(expr.type()).get_width());
+        dest.push_back(bv2integer(s, true));
         return;
       }
       else if(expr.type().id()==ID_unsignedbv)
       {
-        const std::string s=
-          integer2binary(value, to_unsignedbv_type(expr.type()).get_width());
-        dest.push_back(binary2integer(s, false));
+        const std::string s =
+          integer2bv(value, to_unsignedbv_type(expr.type()).get_width());
+        dest.push_back(bv2integer(s, false));
         return;
       }
       else if((expr.type().id()==ID_bool) || (expr.type().id()==ID_c_bool))

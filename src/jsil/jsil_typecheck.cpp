@@ -832,10 +832,10 @@ void jsil_typecheckt::typecheck_ifthenelse(code_ifthenelset &code)
   typecheck_expr(cond);
   make_type_compatible(cond, bool_typet(), true);
 
-  typecheck_code(to_code(code.then_case()));
+  typecheck_code(code.then_case());
 
   if(!code.else_case().is_nil())
-    typecheck_code(to_code(code.else_case()));
+    typecheck_code(code.else_case());
 }
 
 void jsil_typecheckt::typecheck_assign(code_assignt &code)
@@ -922,7 +922,7 @@ bool jsil_typecheck(
 bool jsil_typecheck(
   exprt &expr,
   message_handlert &message_handler,
-  const namespacet &ns)
+  const namespacet &)
 {
   const unsigned errors_before=
     message_handler.get_message_count(messaget::M_ERROR);
@@ -938,7 +938,7 @@ bool jsil_typecheck(
     jsil_typecheck.typecheck_expr(expr);
   }
 
-  catch(int e)
+  catch(int)
   {
     jsil_typecheck.error();
   }

@@ -84,7 +84,7 @@ goto_programt::targett remove_java_newt::lower_java_new(
   CHECK_RETURN(object_size.is_not_nil());
 
   // we produce a malloc side-effect, which stays
-  side_effect_exprt malloc_expr(ID_allocate, rhs.type());
+  side_effect_exprt malloc_expr(ID_allocate, rhs.type(), location);
   malloc_expr.copy_to_operands(object_size);
   // could use true and get rid of the code below
   malloc_expr.copy_to_operands(false_exprt());
@@ -135,7 +135,7 @@ goto_programt::targett remove_java_newt::lower_java_new_array(
   CHECK_RETURN(!object_size.is_nil());
 
   // we produce a malloc side-effect, which stays
-  side_effect_exprt malloc_expr(ID_allocate, rhs.type());
+  side_effect_exprt malloc_expr(ID_allocate, rhs.type(), location);
   malloc_expr.copy_to_operands(object_size);
   // code use true and get rid of the code below
   malloc_expr.copy_to_operands(false_exprt());
@@ -177,7 +177,7 @@ goto_programt::targett remove_java_newt::lower_java_new_array(
     struct_type.components()[2].type());
 
   // Allocate a (struct realtype**) instead of a (void**) if possible.
-  const irept &given_element_type = object_type.find(ID_C_element_type);
+  const irept &given_element_type = object_type.find(ID_element_type);
   typet allocate_data_type;
   if(given_element_type.is_not_nil())
   {
@@ -188,7 +188,7 @@ goto_programt::targett remove_java_newt::lower_java_new_array(
     allocate_data_type = data.type();
 
   side_effect_exprt data_java_new_expr(
-    ID_java_new_array_data, allocate_data_type);
+    ID_java_new_array_data, allocate_data_type, location);
 
   // The instruction may specify a (hopefully small) upper bound on the
   // array size, in which case we allocate a fixed-length array that may
@@ -272,11 +272,11 @@ goto_programt::targett remove_java_newt::lower_java_new_array(
 
     // we already know that rhs has pointer type
     typet sub_type =
-      static_cast<const typet &>(rhs.type().subtype().find("#element_type"));
+      static_cast<const typet &>(rhs.type().subtype().find(ID_element_type));
     CHECK_RETURN(sub_type.id() == ID_pointer);
     sub_java_new.type() = sub_type;
 
-    side_effect_exprt inc(ID_assign);
+    side_effect_exprt inc(ID_assign, typet(), location);
     inc.operands().resize(2);
     inc.op0() = tmp_i;
     inc.op1() = plus_exprt(tmp_i, from_integer(1, tmp_i.type()));
@@ -295,13 +295,13 @@ goto_programt::targett remove_java_newt::lower_java_new_array(
                               .symbol_expr();
     code_declt init_decl(init_sym);
     init_decl.add_source_location() = location;
-    for_body.move_to_operands(init_decl);
+    for_body.move(init_decl);
 
     code_assignt init_subarray(init_sym, sub_java_new);
     code_assignt assign_subarray(
       deref_expr, typecast_exprt(init_sym, deref_expr.type()));
-    for_body.move_to_operands(init_subarray);
-    for_body.move_to_operands(assign_subarray);
+    for_body.move(init_subarray);
+    for_body.move(assign_subarray);
 
     for_loop.init() = code_assignt(tmp_i, from_integer(0, tmp_i.type()));
     for_loop.cond() = binary_relation_exprt(tmp_i, ID_lt, rhs.op0());

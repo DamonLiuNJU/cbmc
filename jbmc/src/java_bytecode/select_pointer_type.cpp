@@ -21,6 +21,7 @@
 /// \param pointer_type: The pointer type replace
 /// \param generic_parameter_specialization_map map of types for all generic
 /// parameters in the current scope
+/// \param ns Namespace for type lookups
 /// \return A pointer type where the subtype may have been modified
 pointer_typet select_pointer_typet::convert_pointer_type(
   const pointer_typet &pointer_type,
@@ -107,7 +108,7 @@ pointer_typet select_pointer_typet::specialize_generics(
     visited_nodes.erase(parameter_name);
     return returned_type;
   }
-  else if(pointer_type.subtype().id() == ID_symbol)
+  else if(pointer_type.subtype().id() == ID_symbol_type)
   {
     // if the pointer is an array, recursively specialize its element type
     const symbol_typet &array_subtype = to_symbol_type(pointer_type.subtype());
@@ -122,7 +123,7 @@ pointer_typet select_pointer_typet::specialize_generics(
           visited_nodes);
 
         pointer_typet replacement_array_type = java_array_type('a');
-        replacement_array_type.subtype().set(ID_C_element_type, new_array_type);
+        replacement_array_type.subtype().set(ID_element_type, new_array_type);
         return replacement_array_type;
       }
     }
@@ -221,4 +222,12 @@ select_pointer_typet::get_recursively_instantiated_type(
     depth);
   visited.erase(parameter_name);
   return inst_val;
+}
+
+std::set<symbol_typet> select_pointer_typet::get_parameter_alternative_types(
+  const irep_idt &function_name,
+  const irep_idt &parameter_name,
+  const namespacet &ns) const
+{
+  return {};
 }

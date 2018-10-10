@@ -221,7 +221,7 @@ void value_set_fivrt::flatten(
   #endif
 
   flatten_seent seen;
-  flatten_rec(e, dest, seen, from_function, from_target_index);
+  flatten_rec(e, dest, seen, from_function);
 
   #if 0
   std::cout << "FLATTEN: Done.\n";
@@ -232,8 +232,7 @@ void value_set_fivrt::flatten_rec(
   const entryt &e,
   object_mapt &dest,
   flatten_seent &seen,
-  unsigned at_function,
-  unsigned at_index) const
+  unsigned at_function) const
 {
   #if 0
   std::cout << "FLATTEN_REC: " << e.identifier << e.suffix << '\n';
@@ -294,7 +293,7 @@ void value_set_fivrt::flatten_rec(
             if(r_it->function==at_function)
             {
               object_mapt temp;
-              flatten_rec(fi->second, temp, seen, r_it->function, r_it->from);
+              flatten_rec(fi->second, temp, seen, r_it->function);
 
               for(object_map_dt::iterator t_it=temp.write().begin();
                   t_it!=temp.write().end();
@@ -1105,7 +1104,7 @@ void value_set_fivrt::assign(
         c_it++, no++)
     {
       const typet &subtype=c_it->type();
-      const irep_idt &name=c_it->get(ID_name);
+      const irep_idt &name = c_it->get_name();
 
       // ignore methods
       if(subtype.id()==ID_code)
@@ -1577,8 +1576,7 @@ void value_set_fivrt::apply_code(
     // shouldn't be here
     UNREACHABLE;
   }
-  else if(statement==ID_assign ||
-          statement==ID_init)
+  else if(statement==ID_assign)
   {
     if(code.operands().size()!=2)
       throw "assignment expected to have two operands";

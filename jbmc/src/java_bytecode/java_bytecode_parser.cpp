@@ -119,11 +119,14 @@ protected:
   void rfields(classt &parsed_class);
   void rmethods(classt &parsed_class);
   void rmethod(classt &parsed_class);
+  void
+  rinner_classes_attribute(classt &parsed_class, const u4 &attribute_length);
+  std::vector<irep_idt> rexceptions_attribute();
   void rclass_attribute(classt &parsed_class);
   void rRuntimeAnnotation_attribute(annotationst &);
   void rRuntimeAnnotation(annotationt &);
   void relement_value_pairs(annotationt::element_value_pairst &);
-  void relement_value_pair(annotationt::element_value_pairt &);
+  exprt get_relement_value();
   void rmethod_attribute(methodt &method);
   void rfield_attribute(fieldt &);
   void rcode_attribute(methodt &method);
@@ -301,9 +304,9 @@ class base_ref_infot : public structured_pool_entryt
 public:
   explicit base_ref_infot(pool_entryt entry) : structured_pool_entryt(entry)
   {
-    static std::set<u1> info_tags = {
-      CONSTANT_Fieldref, CONSTANT_Methodref, CONSTANT_InterfaceMethodref};
-    PRECONDITION(info_tags.find(entry.tag) != info_tags.end());
+    PRECONDITION(
+      entry.tag == CONSTANT_Fieldref || entry.tag == CONSTANT_Methodref ||
+      entry.tag == CONSTANT_InterfaceMethodref);
     class_index = entry.ref1;
     name_and_type_index = entry.ref2;
   }
@@ -449,7 +452,6 @@ bool java_bytecode_parsert::parse()
 #define ACC_FINAL        0x0010
 #define ACC_SYNCHRONIZED 0x0020
 #define ACC_BRIDGE       0x0040
-#define ACC_VARARGS      0x0080
 #define ACC_NATIVE       0x0100
 #define ACC_INTERFACE    0x0200
 #define ACC_ABSTRACT     0x0400
@@ -458,18 +460,14 @@ bool java_bytecode_parsert::parse()
 #define ACC_ANNOTATION   0x2000
 #define ACC_ENUM         0x4000
 
-#ifdef _MSC_VER
-#define UNUSED
-#else
-#define UNUSED __attribute__((unused))
-#endif
+#define UNUSED_u2(x) { const u2 x = read_u2(); (void)x; } (void)0
 
 void java_bytecode_parsert::rClassFile()
 {
   parse_tree.loading_successful=false;
 
   u4 magic=read_u4();
-  u2 UNUSED minor_version=read_u2();
+  UNUSED_u2(minor_version);
   u2 major_version=read_u2();
 
   if(magic!=0xCAFEBABE)
@@ -505,8 +503,7 @@ void java_bytecode_parsert::rClassFile()
     constant(this_class).type().get(ID_C_base_name);
 
   if(super_class!=0)
-    parsed_class.extends=
-      constant(super_class).type().get(ID_C_base_name);
+    parsed_class.super_class = constant(super_class).type().get(ID_C_base_name);
 
   rinterfaces(parsed_class);
   rfields(parsed_class);
@@ -612,19 +609,19 @@ void java_bytecode_parsert::get_class_refs_rec(const typet &src)
 {
   if(src.id()==ID_code)
   {
-    const code_typet &ct=to_code_type(src);
+    const java_method_typet &ct = to_java_method_type(src);
     const typet &rt=ct.return_type();
     get_class_refs_rec(rt);
     for(const auto &p : ct.parameters())
       get_class_refs_rec(p.type());
   }
-  else if(src.id()==ID_symbol)
+  else if(src.id()==ID_symbol_type)
   {
     irep_idt name=src.get(ID_C_base_name);
     if(has_prefix(id2string(name), "array["))
     {
-      const typet &element_type=
-        static_cast<const typet &>(src.find(ID_C_element_type));
+      const typet &element_type =
+        static_cast<const typet &>(src.find(ID_element_type));
       get_class_refs_rec(element_type);
     }
     else
@@ -890,7 +887,7 @@ void java_bytecode_parsert::rfields(classt &parsed_class)
     field.is_public=(access_flags&ACC_PUBLIC)!=0;
     field.is_protected=(access_flags&ACC_PROTECTED)!=0;
     field.is_private=(access_flags&ACC_PRIVATE)!=0;
-    size_t flags=(field.is_public?1:0)+
+    const auto flags = (field.is_public ? 1 : 0) +
       (field.is_protected?1:0)+
       (field.is_private?1:0);
     DATA_INVARIANT(flags<=1, "at most one of public, protected, private");
@@ -1178,8 +1175,8 @@ void java_bytecode_parsert::rmethod_attribute(methodt &method)
 
   if(attribute_name=="Code")
   {
-    u2 UNUSED max_stack=read_u2();
-    u2 UNUSED max_locals=read_u2();
+    UNUSED_u2(max_stack);
+    UNUSED_u2(max_locals);
 
     rbytecode(method.instructions);
 
@@ -1244,6 +1241,25 @@ void java_bytecode_parsert::rmethod_attribute(methodt &method)
           attribute_name=="RuntimeVisibleAnnotations")
   {
     rRuntimeAnnotation_attribute(method.annotations);
+  }
+  else if(
+    attribute_name == "RuntimeInvisibleParameterAnnotations" ||
+    attribute_name == "RuntimeVisibleParameterAnnotations")
+  {
+    u1 parameter_count = read_u1();
+    // There may be attributes for both runtime-visiible and rutime-invisible
+    // annotations, the length of either array may be longer than the other as
+    // trailing parameters without annotations are omitted.
+    // Extend our parameter_annotations if this one is longer than the one
+    // previously recorded (if any).
+    if(method.parameter_annotations.size() < parameter_count)
+      method.parameter_annotations.resize(parameter_count);
+    for(u2 param_no = 0; param_no < parameter_count; ++param_no)
+      rRuntimeAnnotation_attribute(method.parameter_annotations[param_no]);
+  }
+  else if(attribute_name == "Exceptions")
+  {
+    method.throws_exception_table = rexceptions_attribute();
   }
   else
     skip_bytes(attribute_length);
@@ -1509,16 +1525,17 @@ void java_bytecode_parsert::relement_value_pairs(
   {
     u2 element_name_index=read_u2();
     element_value_pair.element_name=pool_entry(element_name_index).s;
-
-    relement_value_pair(element_value_pair);
+    element_value_pair.value = get_relement_value();
   }
 }
 
 /// Corresponds to the element_value structure
 /// Described in Java 8 specification 4.7.16.1
 /// https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.7.16.1
-void java_bytecode_parsert::relement_value_pair(
-  annotationt::element_value_pairt &element_value_pair)
+/// \returns An exprt that represents the particular value of annotations field.
+///   This is usually one of: a byte, number of some sort, string, character,
+///   enum, Class type, array or another annotation.
+exprt java_bytecode_parsert::get_relement_value()
 {
   u1 tag=read_u1();
 
@@ -1526,54 +1543,151 @@ void java_bytecode_parsert::relement_value_pair(
   {
   case 'e':
     {
-      UNUSED u2 type_name_index=read_u2();
-      UNUSED u2 const_name_index=read_u2();
+      UNUSED_u2(type_name_index);
+      UNUSED_u2(const_name_index);
       // todo: enum
+      return exprt();
     }
-    break;
 
   case 'c':
     {
       u2 class_info_index = read_u2();
-      element_value_pair.value = symbol_exprt(pool_entry(class_info_index).s);
+      return symbol_exprt(pool_entry(class_info_index).s);
     }
-    break;
 
   case '@':
     {
+      // TODO: return this wrapped in an exprt
       // another annotation, recursively
       annotationt annotation;
       rRuntimeAnnotation(annotation);
+      return exprt();
     }
-    break;
 
   case '[':
     {
+      array_exprt values;
       u2 num_values=read_u2();
       for(std::size_t i=0; i<num_values; i++)
       {
-        annotationt::element_value_pairt element_value;
-        relement_value_pair(element_value); // recursive call
+        values.operands().push_back(get_relement_value());
       }
+      return values;
     }
-    break;
 
   case 's':
     {
       u2 const_value_index=read_u2();
-      element_value_pair.value=string_constantt(
-        pool_entry(const_value_index).s);
+      return string_constantt(pool_entry(const_value_index).s);
     }
-    break;
 
   default:
     {
       u2 const_value_index=read_u2();
-      element_value_pair.value=constant(const_value_index);
+      return constant(const_value_index);
     }
-
-  break;
   }
+}
+
+/// Corresponds to the element_value structure
+/// Described in Java 8 specification 4.7.6
+/// https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.7.6
+/// Parses the InnerClasses attribute for the current parsed class,
+/// which contains an array of information about its inner classes. We are
+/// interested in getting information only for inner classes, which is
+/// determined by checking if the parsed class matches any of the inner classes
+/// in its inner class array. If the parsed class is not an inner class, then it
+/// is ignored. When a parsed class is an inner class, the accessibility
+/// information for the parsed class is overwritten, and the parsed class is
+/// marked as an inner class.
+void java_bytecode_parsert::rinner_classes_attribute(
+  classt &parsed_class,
+  const u4 &attribute_length)
+{
+  std::string name = parsed_class.name.c_str();
+  u2 number_of_classes = read_u2();
+  u4 number_of_bytes_to_be_read = number_of_classes * 8 + 2;
+  INVARIANT(
+    number_of_bytes_to_be_read == attribute_length,
+    "The number of bytes to be read for the InnerClasses attribute does not "
+    "match the attribute length.");
+
+  const auto pool_entry_lambda = [this](u2 index) -> pool_entryt & {
+    return pool_entry(index);
+  };
+  const auto remove_separator_char = [](std::string str, char ch) {
+    str.erase(std::remove(str.begin(), str.end(), ch), str.end());
+    return str;
+  };
+
+  for(int i = 0; i < number_of_classes; i++)
+  {
+    u2 inner_class_info_index = read_u2();
+    u2 outer_class_info_index = read_u2();
+    u2 inner_name_index = read_u2();
+    u2 inner_class_access_flags = read_u2();
+
+    std::string inner_class_info_name =
+      class_infot(pool_entry(inner_class_info_index))
+        .get_name(pool_entry_lambda);
+    bool is_private = (inner_class_access_flags & ACC_PRIVATE) != 0;
+    bool is_public = (inner_class_access_flags & ACC_PUBLIC) != 0;
+    bool is_protected = (inner_class_access_flags & ACC_PROTECTED) != 0;
+    bool is_static = (inner_class_access_flags & ACC_STATIC) != 0;
+
+    // If the original parsed class name matches the inner class name,
+    // the parsed class is an inner class, so overwrite the parsed class'
+    // access information and mark it as an inner class.
+    bool is_inner_class = remove_separator_char(id2string(parsed_class.name), '.') ==
+      remove_separator_char(inner_class_info_name, '/');
+    if(is_inner_class)
+      parsed_class.is_inner_class = is_inner_class;
+    if(!is_inner_class)
+      continue;
+    parsed_class.is_static_class = is_static;
+    // This is a marker that a class is anonymous.
+    if(inner_name_index == 0)
+      parsed_class.is_anonymous_class = true;
+    // Note that if outer_class_info_index == 0, the inner class is an anonymous
+    // or local class, and is treated as private.
+    if(outer_class_info_index == 0)
+    {
+      parsed_class.is_private = true;
+      parsed_class.is_protected = false;
+      parsed_class.is_public = false;
+    }
+    else
+    {
+      std::string outer_class_info_name =
+        class_infot(pool_entry(outer_class_info_index))
+          .get_name(pool_entry_lambda);
+      parsed_class.outer_class =
+        constant(outer_class_info_index).type().get(ID_C_base_name);
+      parsed_class.is_private = is_private;
+      parsed_class.is_protected = is_protected;
+      parsed_class.is_public = is_public;
+    }
+  }
+}
+
+/// Corresponds to the element_value structure
+/// Described in Java 8 specification 4.7.5
+/// https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.7.5
+/// Parses the Exceptions attribute for the current method,
+/// and returns a vector of exceptions.
+std::vector<irep_idt> java_bytecode_parsert::rexceptions_attribute()
+{
+  u2 number_of_exceptions = read_u2();
+
+  std::vector<irep_idt> exceptions;
+  for(size_t i = 0; i < number_of_exceptions; i++)
+  {
+    u2 exception_index_table = read_u2();
+    const irep_idt exception_name =
+      constant(exception_index_table).type().get(ID_C_base_name);
+    exceptions.push_back(exception_name);
+  }
+  return exceptions;
 }
 
 void java_bytecode_parsert::rclass_attribute(classt &parsed_class)
@@ -1640,6 +1754,11 @@ void java_bytecode_parsert::rclass_attribute(classt &parsed_class)
     parsed_class.attribute_bootstrapmethods_read = true;
     read_bootstrapmethods_entry(parsed_class);
   }
+  else if(attribute_name == "InnerClasses")
+  {
+    java_bytecode_parsert::rinner_classes_attribute(
+      parsed_class, attribute_length);
+  }
   else
     skip_bytes(attribute_length);
 }
@@ -1657,6 +1776,7 @@ void java_bytecode_parsert::rmethods(classt &parsed_class)
 #define ACC_PROTECTED  0x0004
 #define ACC_STATIC     0x0008
 #define ACC_FINAL      0x0010
+#define ACC_VARARGS    0x0080
 #define ACC_SUPER      0x0020
 #define ACC_VOLATILE   0x0040
 #define ACC_TRANSIENT  0x0080
@@ -1682,11 +1802,13 @@ void java_bytecode_parsert::rmethod(classt &parsed_class)
   method.is_private=(access_flags&ACC_PRIVATE)!=0;
   method.is_synchronized=(access_flags&ACC_SYNCHRONIZED)!=0;
   method.is_native=(access_flags&ACC_NATIVE)!=0;
+  method.is_bridge = (access_flags & ACC_BRIDGE) != 0;
+  method.is_varargs = (access_flags & ACC_VARARGS) != 0;
   method.name=pool_entry(name_index).s;
   method.base_name=pool_entry(name_index).s;
   method.descriptor=id2string(pool_entry(descriptor_index).s);
 
-  size_t flags=(method.is_public?1:0)+
+  const auto flags = (method.is_public ? 1 : 0) +
     (method.is_protected?1:0)+
     (method.is_private?1:0);
   DATA_INVARIANT(flags<=1, "at most one of public, protected, private");
@@ -1696,7 +1818,7 @@ void java_bytecode_parsert::rmethod(classt &parsed_class)
     rmethod_attribute(method);
 }
 
-optionalt<class java_bytecode_parse_treet>
+optionalt<java_bytecode_parse_treet>
 java_bytecode_parse(std::istream &istream, message_handlert &message_handler)
 {
   java_bytecode_parsert java_bytecode_parser;
@@ -1713,7 +1835,7 @@ java_bytecode_parse(std::istream &istream, message_handlert &message_handler)
   return std::move(java_bytecode_parser.parse_tree);
 }
 
-optionalt<class java_bytecode_parse_treet>
+optionalt<java_bytecode_parse_treet>
 java_bytecode_parse(const std::string &file, message_handlert &message_handler)
 {
   std::ifstream in(file, std::ios::binary);

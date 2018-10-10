@@ -16,9 +16,10 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/arith_tools.h>
 #include <util/c_types.h>
 #include <util/config.h>
+#include <util/invariant.h>
 #include <util/message.h>
-#include <util/std_expr.h>
 #include <util/std_code.h>
+#include <util/std_expr.h>
 #include <util/symbol_table.h>
 
 #include <goto-programs/format_strings.h>
@@ -279,9 +280,9 @@ void string_instrumentationt::do_sprintf(
 
   if(arguments.size()<2)
   {
-    error().source_location=target->source_location;
-    error() << "sprintf expected to have two or more arguments" << eom;
-    throw 0;
+    throw incorrect_source_program_exceptiont(
+      "sprintf expected to have two or more arguments",
+      target->source_location);
   }
 
   goto_programt tmp;
@@ -302,8 +303,8 @@ void string_instrumentationt::do_sprintf(
     goto_programt::targett return_assignment=tmp.add_instruction(ASSIGN);
     return_assignment->source_location=target->source_location;
 
-    exprt rhs=side_effect_expr_nondett(call.lhs().type());
-    rhs.add_source_location()=target->source_location;
+    exprt rhs =
+      side_effect_expr_nondett(call.lhs().type(), target->source_location);
 
     return_assignment->code=code_assignt(call.lhs(), rhs);
   }
@@ -321,10 +322,9 @@ void string_instrumentationt::do_snprintf(
 
   if(arguments.size()<3)
   {
-    error().source_location=target->source_location;
-    error() << "snprintf expected to have three or more arguments"
-            << eom;
-    throw 0;
+    throw incorrect_source_program_exceptiont(
+      "snprintf expected to have three or more arguments",
+      target->source_location);
   }
 
   goto_programt tmp;
@@ -345,8 +345,8 @@ void string_instrumentationt::do_snprintf(
     goto_programt::targett return_assignment=tmp.add_instruction(ASSIGN);
     return_assignment->source_location=target->source_location;
 
-    exprt rhs=side_effect_expr_nondett(call.lhs().type());
-    rhs.add_source_location()=target->source_location;
+    exprt rhs =
+      side_effect_expr_nondett(call.lhs().type(), target->source_location);
 
     return_assignment->code=code_assignt(call.lhs(), rhs);
   }
@@ -364,9 +364,8 @@ void string_instrumentationt::do_fscanf(
 
   if(arguments.size()<2)
   {
-    error().source_location=target->source_location;
-    error() << "fscanf expected to have two or more arguments" << eom;
-    throw 0;
+    throw incorrect_source_program_exceptiont(
+      "fscanf expected to have two or more arguments", target->source_location);
   }
 
   goto_programt tmp;
@@ -378,8 +377,8 @@ void string_instrumentationt::do_fscanf(
     goto_programt::targett return_assignment=tmp.add_instruction(ASSIGN);
     return_assignment->source_location=target->source_location;
 
-    exprt rhs=side_effect_expr_nondett(call.lhs().type());
-    rhs.add_source_location()=target->source_location;
+    exprt rhs =
+      side_effect_expr_nondett(call.lhs().type(), target->source_location);
 
     return_assignment->code=code_assignt(call.lhs(), rhs);
   }
@@ -583,8 +582,7 @@ void string_instrumentationt::do_format_string_write(
 
           const dereference_exprt lhs(argument, arg_type.subtype());
 
-          side_effect_expr_nondett rhs(lhs.type());
-          rhs.add_source_location()=target->source_location;
+          side_effect_expr_nondett rhs(lhs.type(), target->source_location);
 
           assignment->code=code_assignt(lhs, rhs);
 
@@ -627,8 +625,7 @@ void string_instrumentationt::do_format_string_write(
 
         dereference_exprt lhs(arguments[i], arg_type.subtype());
 
-        side_effect_expr_nondett rhs(lhs.type());
-        rhs.add_source_location()=target->source_location;
+        side_effect_expr_nondett rhs(lhs.type(), target->source_location);
 
         assignment->code=code_assignt(lhs, rhs);
       }
@@ -637,9 +634,9 @@ void string_instrumentationt::do_format_string_write(
 }
 
 void string_instrumentationt::do_strncmp(
-  goto_programt &dest,
-  goto_programt::targett target,
-  code_function_callt &call)
+  goto_programt &,
+  goto_programt::targett,
+  code_function_callt &)
 {
 }
 
@@ -652,9 +649,8 @@ void string_instrumentationt::do_strchr(
 
   if(arguments.size()!=2)
   {
-    error().source_location=target->source_location;
-    error() << "strchr expected to have two arguments" << eom;
-    throw 0;
+    throw incorrect_source_program_exceptiont(
+      "strchr expected to have two arguments", target->source_location);
   }
 
   goto_programt tmp;
@@ -679,9 +675,8 @@ void string_instrumentationt::do_strrchr(
 
   if(arguments.size()!=2)
   {
-    error().source_location=target->source_location;
-    error() << "strrchr expected to have two arguments" << eom;
-    throw 0;
+    throw incorrect_source_program_exceptiont(
+      "strrchr expected to have two arguments", target->source_location);
   }
 
   goto_programt tmp;
@@ -706,9 +701,8 @@ void string_instrumentationt::do_strstr(
 
   if(arguments.size()!=2)
   {
-    error().source_location=target->source_location;
-    error() << "strstr expected to have two arguments" << eom;
-    throw 0;
+    throw incorrect_source_program_exceptiont(
+      "strstr expected to have two arguments", target->source_location);
   }
 
   goto_programt tmp;
@@ -740,9 +734,8 @@ void string_instrumentationt::do_strtok(
 
   if(arguments.size()!=2)
   {
-    error().source_location=target->source_location;
-    error() << "strtok expected to have two arguments" << eom;
-    throw 0;
+    throw incorrect_source_program_exceptiont(
+      "strtok expected to have two arguments", target->source_location);
   }
 
   goto_programt tmp;
@@ -813,7 +806,8 @@ void string_instrumentationt::do_strerror(
 
   {
     goto_programt::targett assignment1=tmp.add_instruction(ASSIGN);
-    exprt nondet_size=side_effect_expr_nondett(size_type());
+    exprt nondet_size =
+      side_effect_expr_nondett(size_type(), it->source_location);
 
     assignment1->code=code_assignt(symbol_size.symbol_expr(), nondet_size);
     assignment1->source_location=it->source_location;
@@ -945,6 +939,7 @@ void string_instrumentationt::invalidate_buffer(
         ID_gt,
         from_integer(limit, unsigned_int_type()));
 
-  const side_effect_expr_nondett nondet(buf_type.subtype());
+  const side_effect_expr_nondett nondet(
+    buf_type.subtype(), target->source_location);
   invalidate->code=code_assignt(deref, nondet);
 }

@@ -24,6 +24,21 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include "linking_class.h"
 
+bool casting_replace_symbolt::replace_symbol_expr(symbol_exprt &s) const
+{
+  expr_mapt::const_iterator it = expr_map.find(s.get_identifier());
+
+  if(it == expr_map.end())
+    return true;
+
+  const exprt &e = it->second;
+
+  typet type = s.type();
+  static_cast<exprt &>(s) = typecast_exprt::conditional_cast(e, type);
+
+  return false;
+}
+
 std::string linkingt::expr_to_string(
   const namespacet &ns,
   const irep_idt &identifier,
@@ -44,7 +59,7 @@ static const typet &follow_tags_symbols(
   const namespacet &ns,
   const typet &type)
 {
-  if(type.id()==ID_symbol)
+  if(type.id() == ID_symbol_type)
     return ns.follow(type);
   else if(type.id()==ID_c_enum_tag)
     return ns.follow_tag(to_c_enum_tag_type(type));
@@ -72,23 +87,17 @@ std::string linkingt::type_to_string_verbose(
       result+=" "+tag;
     result+=" {\n";
 
-    const struct_union_typet::componentst &components=
-      to_struct_union_type(followed).components();
-
-    for(struct_union_typet::componentst::const_iterator
-        it=components.begin();
-        it!=components.end();
-        it++)
+    for(const auto &c : to_struct_union_type(followed).components())
     {
-      const typet &subtype=it->type();
+      const typet &subtype = c.type();
       result+="  ";
       result+=type_to_string(ns, symbol.name, subtype);
       result+=' ';
 
-      if(it->get_base_name()!="")
-        result+=id2string(it->get_base_name());
+      if(!c.get_base_name().empty())
+        result += id2string(c.get_base_name());
       else
-        result+=id2string(it->get_name());
+        result += id2string(c.get_name());
 
       result+=";\n";
     }
@@ -686,11 +695,8 @@ void linkingt::duplicate_code_symbol(
           const typet &src_type=t1.id()==ID_union?t2:t1;
 
           bool found=false;
-          for(union_typet::componentst::const_iterator
-              it=union_type.components().begin();
-              !found && it!=union_type.components().end();
-              it++)
-            if(base_type_eq(it->type(), src_type, ns))
+          for(const auto &c : union_type.components())
+            if(base_type_eq(c.type(), src_type, ns))
             {
               found=true;
               if(warn_msg.empty())
@@ -700,6 +706,17 @@ void linkingt::duplicate_code_symbol(
 
           if(!found)
             break;
+        }
+        // different non-pointer arguments with implementation - the
+        // implementation is always right, even though such code may
+        // be severely broken
+        else if(pointer_offset_bits(t1, ns)==pointer_offset_bits(t2, ns) &&
+                old_symbol.value.is_nil()!=new_symbol.value.is_nil())
+        {
+          if(warn_msg.empty())
+            warn_msg="non-pointer parameter types differ between "
+                     "declaration and definition";
+          replace=new_symbol.value.is_not_nil();
         }
         else
           break;
@@ -779,10 +796,9 @@ bool linkingt::adjust_object_type_rec(
   if(base_type_eq(t1, t2, ns))
     return false;
 
-  if(t1.id()==ID_symbol ||
-     t1.id()==ID_struct_tag ||
-     t1.id()==ID_union_tag ||
-     t1.id()==ID_c_enum_tag)
+  if(
+    t1.id() == ID_symbol_type || t1.id() == ID_struct_tag ||
+    t1.id() == ID_union_tag || t1.id() == ID_c_enum_tag)
   {
     const irep_idt &identifier=t1.get(ID_identifier);
 
@@ -797,10 +813,9 @@ bool linkingt::adjust_object_type_rec(
 
     return false;
   }
-  else if(t2.id()==ID_symbol ||
-          t2.id()==ID_struct_tag ||
-          t2.id()==ID_union_tag ||
-          t2.id()==ID_c_enum_tag)
+  else if(
+    t2.id() == ID_symbol_type || t2.id() == ID_struct_tag ||
+    t2.id() == ID_union_tag || t2.id() == ID_c_enum_tag)
   {
     const irep_idt &identifier=t2.get(ID_identifier);
 
@@ -863,6 +878,11 @@ bool linkingt::adjust_object_type_rec(
       info.new_symbol,
       "conflicting pointer types for variable");
     #endif
+
+    if(info.old_symbol.is_extern && !info.new_symbol.is_extern)
+    {
+      info.set_to_new = true; // store new type
+    }
 
     return false;
   }
@@ -950,10 +970,10 @@ void linkingt::duplicate_object_symbol(
   symbolt &new_symbol)
 {
   // both are variables
+  bool set_to_new = false;
 
   if(!base_type_eq(old_symbol.type, new_symbol.type, ns))
   {
-    bool set_to_new=false;
     bool failed=
       adjust_object_type(old_symbol, new_symbol, set_to_new);
 
@@ -984,7 +1004,8 @@ void linkingt::duplicate_object_symbol(
     else if(set_to_new)
       old_symbol.type=new_symbol.type;
 
-    object_type_updates.insert(old_symbol.name, old_symbol.symbol_expr());
+    object_type_updates.insert(
+      old_symbol.symbol_expr(), old_symbol.symbol_expr());
   }
 
   // care about initializers
@@ -1031,6 +1052,14 @@ void linkingt::duplicate_object_symbol(
                   << eom;
       }
     }
+  }
+  else if(
+    set_to_new && !old_symbol.value.is_nil() &&
+    !old_symbol.value.get_bool(ID_C_zero_initializer))
+  {
+    // the type has been updated, now make sure that the initialising assignment
+    // will have matching types
+    old_symbol.value.make_typecast(old_symbol.type);
   }
 }
 
